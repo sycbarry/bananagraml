@@ -29,9 +29,14 @@ class BananaGramlModel:
         if tile in self.tiles_on_board:
             self.tiles_on_board.remove(tile)
         self.tiles_on_board.append(tile)
+        if tile.model_tile in self.tiles_on_bench:
+            self.tiles_on_bench.remove(tile.model_tile)
+        if len(self.tiles_on_bench) == 0:
+            self.peel()
 
-    def init_bench(self):
-        for i in range(0, 20):
+    def init_bench(self, count):
+        # for i in range(0, 20):
+        for i in range(0, count):
             self.peel()
 
     def remaining_tiles(self):
