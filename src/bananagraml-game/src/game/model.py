@@ -47,10 +47,14 @@ class BananaGramlModel:
         self.tiles_on_bench.append(token)
 
     def dump(self, token, location="bench"):
-        if location == "bench":
-            self.tiles_on_bench.remove(token)
+        if token in self.tiles_on_bench:
+            for bench_tile in self.tiles_on_bench:
+                if bench_tile == token:
+                    self.tiles_on_bench.remove(token)
         else:
-            self.tiles_on_board.remove(token)
+            for board_tile in self.tiles_on_board:
+                if board_tile == token:
+                    self.tiles_on_board.remove(token)
         new_tokens = self.tile_bank.dump(token)
         for token in new_tokens:
             self.tiles_on_bench.append(token)
@@ -127,7 +131,7 @@ class TileBank:
         if len(self.bank) >= 3:
             self.bank.append(token)
             returned_tokens = []
-            for i in range(0, 2):
+            for i in range(0, 3):
                 returned_tokens.append(self.peel())
             return tuple(returned_tokens)
         else:
