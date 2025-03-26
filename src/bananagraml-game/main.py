@@ -106,6 +106,9 @@ class Tile(pygame.sprite.Sprite):
         # Check if tile was dropped in dump area
         if dump_area.collidepoint(self.rect.center):
             if self.model_tile:
+                # Remove from model's board tiles if it's there
+                if self in model.tiles_on_board:
+                    model.tiles_on_board.remove(self)
                 model.dump(self.model_tile)
                 self.kill()  # Remove the tile sprite
                 self.dragging = False  # Ensure dragging is set to False
