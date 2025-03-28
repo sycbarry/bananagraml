@@ -9,10 +9,13 @@ import random
 class BananaGramlModel:
     def __init__(self, BOARD_DIMENSIONS: (int, int, int)):
         self.board_valid = True
+        self.divider = BOARD_DIMENSIONS[2]
         self.coordinates = build_coordinates(BOARD_DIMENSIONS)
         self.tile_bank = TileBank()
         self.tiles_on_board = []
         self.tiles_on_bench = []
+
+        print(len(self.coordinates), len(self.coordinates[0]))
 
     def board_tiles(self):
         return self.tiles_on_board
@@ -25,13 +28,32 @@ class BananaGramlModel:
         self.tiles_on_board.append(tile)
     """
 
-    def place_tile_on_board(self, tile):
+    def validate(self):
+        """
+        check if we have a valid board game.
+        this is the logic of a banangrams game here.
+        Restrictions for word validation:
+            - left to right
+            - top to bottom
+            - all tiles must be connected (no disconnected tiles)
+        """
+
+        # we can generate a 2d matrix.
+        return False
+
+        # build a list of words
+
+        # work through each word and validate it exists in a dictionary?
+
+    def place_tile_on_board(self, tile, coordinate):
+        tile.model_tile.set_position(coordinate)
+        self.validate()
         if tile in self.tiles_on_board:
             self.tiles_on_board.remove(tile)
         self.tiles_on_board.append(tile)
         if tile.model_tile in self.tiles_on_bench:
             self.tiles_on_bench.remove(tile.model_tile)
-        if len(self.tiles_on_bench) == 0:
+        if len(self.tiles_on_bench) == 0 and self.board_valid:
             self.peel()
 
     def init_bench(self, count):
@@ -176,8 +198,8 @@ def build_coordinates(coordinates: (int, int, int)):
     """
     builds a coordinate system
     """
-    X = coordinates[0]
-    Y = coordinates[1]
+    Y = coordinates[0]  # height
+    X = coordinates[1]  # width
     divider = coordinates[2]
     COLS = math.floor(X / divider)
     ROWS = math.floor(Y / divider)
@@ -185,6 +207,8 @@ def build_coordinates(coordinates: (int, int, int)):
     for i in range(ROWS):
         coordinates.append([])
         for j in range(COLS):
-            coordinates[i].append(Coordinate(i * divider, j * divider, divider, (i, j)))
+            cell_position = (i, j)
+            coordinate = Coordinate(i * divider, j * divider, divider, cell_position)
+            coordinates[i].append(coordinate)
 
     return coordinates

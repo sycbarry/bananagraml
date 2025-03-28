@@ -48,6 +48,7 @@ class Cell(pygame.sprite.Sprite):
         self.original_color = GameConfig.CELL_COLOR
         self.image.fill(self.original_color)
         self.rect = self.image.get_rect(center=pos)
+        self._render_text()
 
     def update(self, event: pygame.event.Event) -> None:
         if event.type == pygame.MOUSEMOTION:
@@ -56,6 +57,16 @@ class Cell(pygame.sprite.Sprite):
                 if self.rect.collidepoint(event.pos)
                 else self.original_color
             )
+            self._render_text()  # Re-render text after filling
+
+    def _render_text(self) -> None:
+        font = pygame.font.Font(None, 12)
+        text = f"{self.rect.centerx}, {self.rect.centery}"
+        text_surface = font.render(text, True, "white")
+        text_rect = text_surface.get_rect(
+            center=(self.image.get_width() // 2, self.image.get_height() // 2)
+        )
+        self.image.blit(text_surface, text_rect)
 
 
 class Tile(pygame.sprite.Sprite):
@@ -124,7 +135,7 @@ class Tile(pygame.sprite.Sprite):
                 return
 
         self.dragging = False
-        model.place_tile_on_board(self)
+        model.place_tile_on_board(self, self.rect.center)
         self.original_position = self.rect.center
 
     def handle_motion(
