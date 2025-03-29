@@ -10,12 +10,11 @@ class BananaGramlModel:
     def __init__(self, BOARD_DIMENSIONS: (int, int, int)):
         self.board_valid = True
         self.divider = BOARD_DIMENSIONS[2]
-        self.coordinates = build_coordinates(BOARD_DIMENSIONS)
+        self.coordinates = build_coordinates(BOARD_DIMENSIONS)  # this is the shadow
+        self.live_board = [len(coordinates)][len(coordinates[0])]
         self.tile_bank = TileBank()
-        self.tiles_on_board = []
+        self.tiles_on_board = []  # need to make this the live board rep.
         self.tiles_on_bench = []
-
-        print(len(self.coordinates), len(self.coordinates[0]))
 
     def board_tiles(self):
         return self.tiles_on_board
@@ -28,7 +27,8 @@ class BananaGramlModel:
         self.tiles_on_board.append(tile)
     """
 
-    def validate(self):
+    # TODO finalize this.
+    def validate(self, coordinate_object):
         """
         check if we have a valid board game.
         this is the logic of a banangrams game here.
@@ -37,28 +37,37 @@ class BananaGramlModel:
             - top to bottom
             - all tiles must be connected (no disconnected tiles)
         """
+        print(coordinate_object.get_position_in_grid())
 
-        # we can generate a 2d matrix.
         return False
 
         # build a list of words
 
         # work through each word and validate it exists in a dictionary?
 
-    def place_tile_on_board(self, tile, coordinate):
-        tile.model_tile.set_position(coordinate)
-        self.validate()
+    # FIXME/TODO
+    """
+    We don't really need a model tile's position (center)
+    We only really need to know where it's indexed on the game board. 
+    
+    We can make a hashmap in main.py, where each center of a tile corresponds to 
+    and index in the tile. making it so that we don't have to loop through each cell of the board to find collision points.
+    """
+
+    def place_tile_on_board(self, tile, center, coordinate_object):
+        tile.model_tile.set_position(center)
         if tile in self.tiles_on_board:
             self.tiles_on_board.remove(tile)
         self.tiles_on_board.append(tile)
         if tile.model_tile in self.tiles_on_bench:
             self.tiles_on_bench.remove(tile.model_tile)
+        self.validate(coordinate_object)
         if len(self.tiles_on_bench) == 0 and self.board_valid:
             self.peel()
 
     def init_bench(self, count):
-        # for i in range(0, 20):
-        for i in range(0, count):
+        for i in range(0, 20):
+            # for i in range(0, count):
             self.peel()
 
     def remaining_tiles(self):
@@ -94,11 +103,14 @@ class Coordinate:
     def __init__(self, x, y, divider, position):
         self.x = x
         self.y = y
-        self.position = position
+        self.position = position  # where this is in the matrix. ie (1, 3)
         self.divider = divider
 
+    def get_position_in_grid(self):
+        return self.position
+
     def get_center(self):
-        return (self.x + self.divider / 2, self.y + self.divider / 2)
+        return (self.x + self.divider // 2, self.y + self.divider // 2)
 
     def print_coordinate(self):
         coord = "X: " + self.x.__str__() + " Y: " + self.y.__str__()
@@ -198,17 +210,19 @@ def build_coordinates(coordinates: (int, int, int)):
     """
     builds a coordinate system
     """
-    Y = coordinates[0]  # height
-    X = coordinates[1]  # width
+    width = coordinates[0]
+    height = coordinates[1]
     divider = coordinates[2]
-    COLS = math.floor(X / divider)
-    ROWS = math.floor(Y / divider)
+    # divider is something like height / divider to get # of
+    # cells in a column or something.
+    COLS = math.floor(width // divider)
+    ROWS = math.floor(height // divider)
     coordinates = []
     for i in range(ROWS):
         coordinates.append([])
         for j in range(COLS):
             cell_position = (i, j)
-            coordinate = Coordinate(i * divider, j * divider, divider, cell_position)
+            coordinate = Coordinate(j * divider, i * divider, divider, cell_position)
             coordinates[i].append(coordinate)
 
     return coordinates

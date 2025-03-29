@@ -10,11 +10,11 @@ from typing import Tuple, List, Optional
 @dataclass
 class GameConfig:
     # Screen Dimensions
-    SCREEN_WIDTH: int = 1200
-    SCREEN_HEIGHT: int = 800
+    SCREEN_WIDTH: int = 1260
+    SCREEN_HEIGHT: int = 720
 
     # Bench Dimensions
-    BENCH_HEIGHT: int = 150
+    BENCH_HEIGHT: int = 70
     BENCH_WIDTH: int = SCREEN_WIDTH
 
     # Board Dimensions
@@ -37,18 +37,25 @@ class GameConfig:
     DUMP_AREA_COLOR: Tuple[int, int, int] = (255, 0, 0)  # Red color for dump area
 
     # Dump Area Dimensions
-    DUMP_AREA_SIZE: int = 100
+    DUMP_AREA_SIZE: int = 50
     DUMP_AREA_MARGIN: int = 20
 
 
 class Cell(pygame.sprite.Sprite):
-    def __init__(self, pos: Tuple[int, int], size: Tuple[int, int]):
+    def __init__(
+        self,
+        pos: Tuple[int, int],
+        size: Tuple[int, int],
+        coordinate_object: Tuple[int, int],
+    ):
         super().__init__()
         self.image = pygame.Surface(size)
+        self.coordinate_object = coordinate_object
         self.original_color = GameConfig.CELL_COLOR
         self.image.fill(self.original_color)
         self.rect = self.image.get_rect(center=pos)
         self._render_text()
+        self._render_center()
 
     def update(self, event: pygame.event.Event) -> None:
         if event.type == pygame.MOUSEMOTION:
@@ -57,16 +64,25 @@ class Cell(pygame.sprite.Sprite):
                 if self.rect.collidepoint(event.pos)
                 else self.original_color
             )
-            self._render_text()  # Re-render text after filling
+            # self._render_text()  # Re-render text after filling
+            self._render_center()
 
     def _render_text(self) -> None:
-        font = pygame.font.Font(None, 12)
+        font = pygame.font.Font(None, 13)
         text = f"{self.rect.centerx}, {self.rect.centery}"
         text_surface = font.render(text, True, "white")
         text_rect = text_surface.get_rect(
             center=(self.image.get_width() // 2, self.image.get_height() // 2)
         )
         self.image.blit(text_surface, text_rect)
+
+    def _render_center(self) -> None:
+        pygame.draw.circle(
+            self.image,
+            "red",
+            center=(self.image.get_width() // 2, self.image.get_height() // 2),
+            radius=4,
+        )
 
 
 class Tile(pygame.sprite.Sprite):
@@ -106,12 +122,16 @@ class Tile(pygame.sprite.Sprite):
                 self.offset = pygame.math.Vector2(self.rect.center) - event.pos
 
         elif event.type == pygame.MOUSEBUTTONUP and self.dragging:
-            self.handle_drop(model)
+            self.handle_drop(model, cells)
 
         elif event.type == pygame.MOUSEMOTION:
             self.handle_motion(event, cells)
 
-    def handle_drop(self, model: BananaGramlModel) -> None:
+    def handle_drop(
+        self,
+        model: BananaGramlModel,
+        cells: pygame.sprite.Group,
+    ) -> None:
         dump_area = GameRenderer.draw_dump_area()
 
         # Check if tile was dropped in dump area
@@ -135,7 +155,12 @@ class Tile(pygame.sprite.Sprite):
                 return
 
         self.dragging = False
-        model.place_tile_on_board(self, self.rect.center)
+        # TODO this needs to be refactored
+        # see model.py TODO
+        for cell in cells:
+            if self.rect.collidepoint(cell.rect.center):
+                coordinate_object = cell.coordinate_object
+                model.place_tile_on_board(self, self.rect.center, coordinate_object)
         self.original_position = self.rect.center
 
     def handle_motion(
@@ -243,12 +268,22 @@ class DragSelect:
         for tile, offset in zip(self.selected_tiles, self.group_offset):
             tile.rect.center = base_pos + offset
 
-    def end_group_drag(self, model: BananaGramlModel) -> None:
+    def end_group_drag(
+        self,
+        model: BananaGramlModel,
+        cells: pygame.sprite.Group,
+    ) -> None:
         if self.dragging_group:
             self.dragging_group = False
             self.group_offset = None
-            for tile in self.selected_tiles:
-                model.place_tile_on_board(tile)
+            for cell in cells:
+                # TODO see model TODO
+                for tile in self.selected_tiles:
+                    if tile.rect.collidepoint(cell.rect.center):
+                        coordinate_object = cell.coordinate_object
+                        model.place_tile_on_board(
+                            tile, tile.rect.center, coordinate_object
+                        )
 
     def end_selection(self) -> None:
         self.selecting = False
@@ -265,8 +300,13 @@ class GameRenderer:
     def create_cells(model: BananaGramlModel) -> pygame.sprite.Group:
         cells = pygame.sprite.Group()
         for row in model.coordinates:
+            size = GameConfig.DIVIDER
             for col in row:
-                cell = Cell(pos=col.get_center(), size=(len(row), len(row)))
+                cell = Cell(
+                    pos=col.get_center(),
+                    size=(size, size),
+                    coordinate_object=col,  # this is the coordinate point
+                )
                 cells.add(cell)
         return cells
 
@@ -401,7 +441,7 @@ class Game:
 
     def _handle_mouse_up(self) -> None:
         if self.drag_select.dragging_group:
-            self.drag_select.end_group_drag(self.model)
+            self.drag_select.end_group_drag(self.model, self.board_cells)
         elif self.drag_select.selecting:
             self.drag_select.end_selection()
 
@@ -444,8 +484,10 @@ class Game:
 
 def main():
     board_dimensions = (
-        GameConfig.BOARD_HEIGHT,
-        GameConfig.BOARD_WIDTH,
+        # something like 1080*720
+        # where 1080 is width and 720 is height
+        GameConfig.BOARD_WIDTH,  # is longer than height
+        GameConfig.BOARD_HEIGHT,  # is shorter than width.
         GameConfig.DIVIDER,
     )
     model = BananaGramlModel(board_dimensions)
