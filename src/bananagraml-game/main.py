@@ -154,20 +154,22 @@ class Tile(pygame.sprite.Sprite):
                 self.dragging = False
                 return
 
-        self.dragging = False
-        # TODO this needs to be refactored
-        # see model.py TODO
+        # TODO
+        # when dropping tile on cell, we need to ensure that the tile is being placed directly
+        # on a coordainte that is identical to what we have in our model.coordinate_ref hash
         for cell in cells:
             if self.rect.collidepoint(cell.rect.center):
-                coordinate_object = cell.coordinate_object
-                model.place_tile_on_board(self, self.rect.center, coordinate_object)
-        self.original_position = self.rect.center
+                model.place_tile_on_board(self, cell.rect.center)
+                self.rect.center = cell.rect.center
+                self.original_position = cell.rect.center
+                self.dragging = False
 
     def handle_motion(
         self, event: pygame.event.Event, cells: pygame.sprite.Group
     ) -> None:
         if self.dragging and not self.is_selected:
             self.rect.center = event.pos + self.offset
+            # stick to the center of the cell that the tile is being hovered over.
             for cell in cells:
                 if self.rect.collidepoint(cell.rect.center):
                     self.rect.center = cell.rect.center
@@ -276,14 +278,8 @@ class DragSelect:
         if self.dragging_group:
             self.dragging_group = False
             self.group_offset = None
-            for cell in cells:
-                # TODO see model TODO
-                for tile in self.selected_tiles:
-                    if tile.rect.collidepoint(cell.rect.center):
-                        coordinate_object = cell.coordinate_object
-                        model.place_tile_on_board(
-                            tile, tile.rect.center, coordinate_object
-                        )
+            for tile in self.selected_tiles:
+                model.place_tile_on_board(tile, tile.rect.center)
 
     def end_selection(self) -> None:
         self.selecting = False
@@ -298,6 +294,10 @@ class DragSelect:
 class GameRenderer:
     @staticmethod
     def create_cells(model: BananaGramlModel) -> pygame.sprite.Group:
+        """
+        this creates the visual sprites on the board with their
+        respective centers
+        """
         cells = pygame.sprite.Group()
         for row in model.coordinates:
             size = GameConfig.DIVIDER
@@ -331,21 +331,21 @@ class GameRenderer:
         tiles = pygame.sprite.Group()
         if not model.tiles_on_bench:
             return tiles
-
         X_orig = bench.get_rect().x + 20
         Y_orig = GameConfig.SCREEN_HEIGHT - GameConfig.BENCH_HEIGHT + 50
-
         existing_tile_map = {}
         if existing_tiles:
             for tile in existing_tiles:
                 if tile.model_tile and tile.model_tile in model.tiles_on_bench:
                     existing_tile_map[tile.model_tile] = tile
-
         for model_tile in model.tiles_on_bench:
             if model_tile in existing_tile_map:
                 game_tile = existing_tile_map[model_tile]
+                # TODO double check this.
+                """
                 if not game_tile.dragging:
                     game_tile.rect.center = (X_orig, Y_orig)
+                """
                 tiles.add(game_tile)
             else:
                 game_tile = Tile(

@@ -9,9 +9,9 @@ import random
 class BananaGramlModel:
     def __init__(self, BOARD_DIMENSIONS: (int, int, int)):
         self.board_valid = True
-        self.divider = BOARD_DIMENSIONS[2]
-        self.coordinates = build_coordinates(BOARD_DIMENSIONS)  # this is the shadow
-        self.live_board = [len(coordinates)][len(coordinates[0])]
+        self.coordinates = self.build_coordinates(coordinates=BOARD_DIMENSIONS)
+        self.coordinate_ref = self.build_coordinate_ref()
+        self.board = []
         self.tile_bank = TileBank()
         self.tiles_on_board = []  # need to make this the live board rep.
         self.tiles_on_bench = []
@@ -28,7 +28,7 @@ class BananaGramlModel:
     """
 
     # TODO finalize this.
-    def validate(self, coordinate_object):
+    def validate(self):
         """
         check if we have a valid board game.
         this is the logic of a banangrams game here.
@@ -37,13 +37,33 @@ class BananaGramlModel:
             - top to bottom
             - all tiles must be connected (no disconnected tiles)
         """
-        print(coordinate_object.get_position_in_grid())
-
-        return False
+        self.clean_board()
+        for tile in self.tiles_on_board:
+            center = tile.model_tile.get_position()
+            if center in self.coordinate_ref:
+                x, y = self.coordinate_ref[center]
+                self.board[x][y] = tile.model_tile
 
         # build a list of words
+        is_valid_board = self.dfs()
 
         # work through each word and validate it exists in a dictionary?
+        return False
+
+    def dfs(self, board=None):
+        # base case.
+
+        # r case
+
+        # check if we're going up
+
+        # check if we're going down
+
+        # check if we're going left
+
+        # check if we're going right
+
+        return True
 
     # FIXME/TODO
     """
@@ -54,14 +74,21 @@ class BananaGramlModel:
     and index in the tile. making it so that we don't have to loop through each cell of the board to find collision points.
     """
 
-    def place_tile_on_board(self, tile, center, coordinate_object):
+    def place_tile_on_board(self, tile, center):
+        # set the new center position of the tile # TODO Remove this not needed.
         tile.model_tile.set_position(center)
+        # TODO review this.
         if tile in self.tiles_on_board:
             self.tiles_on_board.remove(tile)
         self.tiles_on_board.append(tile)
+
+        # remove the tile from the bench. if we take the tile from the bench and
+        # place it on the board, we want to remove it from the bench.
         if tile.model_tile in self.tiles_on_bench:
             self.tiles_on_bench.remove(tile.model_tile)
-        self.validate(coordinate_object)
+
+        self.validate()
+
         if len(self.tiles_on_bench) == 0 and self.board_valid:
             self.peel()
 
@@ -97,6 +124,48 @@ class BananaGramlModel:
         for row in self.coordinates:
             for col in row:
                 col.print_position()
+
+    def build_coordinates(self, coordinates: (int, int, int)):
+        """
+        builds a coordinate system
+        """
+        width = coordinates[0]
+        height = coordinates[1]
+        divider = coordinates[2]
+        # divider is something like height / divider to get # of
+        # cells in a column or something.
+        COLS = math.floor(width // divider)
+        ROWS = math.floor(height // divider)
+        coordinates = []
+        for i in range(ROWS):
+            coordinates.append([])
+            for j in range(COLS):
+                cell_position = (i, j)
+                # build a coordinate object
+                coordinate = Coordinate(
+                    j * divider, i * divider, divider, cell_position
+                )
+                coordinates[i].append(coordinate)
+        self.board = [[None for i in x] for x in coordinates]
+        return coordinates
+
+    def build_coordinate_ref(self):
+        """
+        builds a hashmap of cell centers to their respective index in the self.board
+        we need a reference point so that when we pass in a tile in the place_tile_on_board method,
+        we can take the tile's location on the board and find the index that we want to place it on
+        the self.board.
+        """
+        hash = {}
+        for row in range(0, len(self.coordinates)):
+            for col in range(0, row):
+                coordinate = self.coordinates[row][col]
+                if coordinate:
+                    hash[coordinate.get_center()] = (row, col)
+        return hash
+
+    def clean_board(self):
+        self.board = [[None for i in x] for x in self.coordinates]
 
 
 class Coordinate:
@@ -204,25 +273,3 @@ def init_game_tiles():
     )
     random.shuffle(bananagrams_tiles)
     return bananagrams_tiles
-
-
-def build_coordinates(coordinates: (int, int, int)):
-    """
-    builds a coordinate system
-    """
-    width = coordinates[0]
-    height = coordinates[1]
-    divider = coordinates[2]
-    # divider is something like height / divider to get # of
-    # cells in a column or something.
-    COLS = math.floor(width // divider)
-    ROWS = math.floor(height // divider)
-    coordinates = []
-    for i in range(ROWS):
-        coordinates.append([])
-        for j in range(COLS):
-            cell_position = (i, j)
-            coordinate = Coordinate(j * divider, i * divider, divider, cell_position)
-            coordinates[i].append(coordinate)
-
-    return coordinates
