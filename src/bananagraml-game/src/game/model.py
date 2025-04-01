@@ -5,6 +5,10 @@
 import math
 import random
 
+dictionary = None
+with open("dictionary.txt", encoding="utf-8") as f:
+    dictionary = set(line.strip().upper() for line in f)
+
 
 class BananaGramlModel:
     def __init__(self, BOARD_DIMENSIONS: (int, int, int)):
@@ -37,6 +41,8 @@ class BananaGramlModel:
             - top to bottom
             - all tiles must be connected (no disconnected tiles)
         """
+
+        # clean up the board and re-build it during each validate() call.
         self.clean_board()
         for tile in self.tiles_on_board:
             center = tile.model_tile.get_position()
@@ -44,24 +50,100 @@ class BananaGramlModel:
                 x, y = self.coordinate_ref[center]
                 self.board[x][y] = tile.model_tile
 
-        # build a list of words
-        is_valid_board = self.dfs()
+        """
+        isnot_disconnected_board = self.validate_disconnected_tiles(self.board)
+        print(isnot_disconnected_board)
+        if isnot_disconnected_board:
+            return False
+        """
 
-        # work through each word and validate it exists in a dictionary?
+        is_valid = self.build_words("", 0, 0, self.board)
+        return is_valid
+
+    def validate_words(self, words: [str]) -> bool:
+        for word in words:
+            if not (self.check_dictionary(word.upper())):
+                return False
+        return True
+
+    def check_dictionary(self, word: str) -> bool:
+        if word in dictionary:
+            return True
         return False
 
-    def dfs(self, board=None):
-        # base case.
+    def validate_disconnected_tiles(self, board=None):
+        """
+        check if each tile is connected
+        we are checking if we have a disconnected tile here.
+        """
+        if board is None:
+            return False
+        for i in range(0, len(board)):
+            for j in range(0, len(board[i])):
+                if board[i][j] == None:
+                    continue
+                if board[i][j] is not None:
+                    if (
+                        board[i - 1][j] is None
+                        and board[i + 1][j] is None
+                        and board[i][j - 1] is None
+                        and board[i][j + 1] is None
+                    ):
+                        return False
+        return True
 
-        # r case
+    def build_words(self, word: str, row: int, column: int, board=None):
+        """
+        we can do a backtracking thing here.
+        :: we're building a list of strings here
+            -> if we see a tile, we keep reading right until we hit a NULL
+            -> if we see a tile, we keep reading down until we hit a NULL
+        :: edge cases
+            -> we *don't* want to read subsets of words, ie
+                word is EACH
+                start at E
+                read all the way to H
+                start at A
+                read all the way to H
+                etc, etc.
+                this would give us four words, with three of them being invalid.
+        :: we want to consider this:
+            -> what is the base case, where we finish the recursion.
+                maybe instead of building a list of words, we can just check if the word is valid when
+                we hit our base case, which in this case is
+                    1. the cell on the right of a tile is NULL
+                    2. the cell below the tile is NULL
+                we would be building out the string as we iterate.
+        """
 
-        # check if we're going up
+        def validate_row(i, j, board):
+            word = ""
+            while board[i][j] is not None:
+                word += board[i][j].__str__()
+                j += 1
+            print(word)
+            return self.validate_words([word])
 
-        # check if we're going down
+        def validate_col(i, j, board):
+            word = ""
+            while board[i][j] is not None:
+                word += board[i][j].__str__()
+                i += 1
+            print(word)
+            return self.validate_words([word])
 
-        # check if we're going left
+        for i in range(row, len(board)):
+            for j in range(column, len(board[0])):
+                if board[i][j] is not None:
+                    # met a top tile of a col.
+                    if board[i + 1][j] is not None and board[i - 1][j] is None:
+                        if not validate_col(i, j, board):
+                            return False
 
-        # check if we're going right
+                    # met a leftest most tile on the board.
+                    if board[i][j + 1] is not None and board[i][j - 1] is None:
+                        if not validate_row(i, j, board):
+                            return False
 
         return True
 
@@ -75,9 +157,7 @@ class BananaGramlModel:
     """
 
     def place_tile_on_board(self, tile, center):
-        # set the new center position of the tile # TODO Remove this not needed.
         tile.model_tile.set_position(center)
-        # TODO review this.
         if tile in self.tiles_on_board:
             self.tiles_on_board.remove(tile)
         self.tiles_on_board.append(tile)
@@ -87,10 +167,23 @@ class BananaGramlModel:
         if tile.model_tile in self.tiles_on_bench:
             self.tiles_on_bench.remove(tile.model_tile)
 
-        self.validate()
+        self.board_valid = self.validate()
+        self.dump_board()
 
         if len(self.tiles_on_bench) == 0 and self.board_valid:
             self.peel()
+
+    def dump_board(self):
+        with open("board.json", encoding="utf-8", mode="w") as f:
+            board = self.board
+            for i in range(0, len(board)):
+                for j in range(0, len(board[0])):
+                    if board[i][j] is not None:
+                        tile = board[i][j]
+                        f.write(tile.__str__())
+                        f.write(" has position: ")
+                        f.write(f"{i}, {j}")
+                        f.write("\n")
 
     def init_bench(self, count):
         for i in range(0, 20):
@@ -158,7 +251,7 @@ class BananaGramlModel:
         """
         hash = {}
         for row in range(0, len(self.coordinates)):
-            for col in range(0, row):
+            for col in range(0, len(self.coordinates[0])):
                 coordinate = self.coordinates[row][col]
                 if coordinate:
                     hash[coordinate.get_center()] = (row, col)
@@ -204,6 +297,9 @@ class ModelTile:
 class TileBank:
     def __init__(self):
         self.bank = init_game_tiles()
+
+    def get_bank_size(self):
+        return self.bank.__len__()
 
     def get_all_remaining_tiles(self):
         return self.bank

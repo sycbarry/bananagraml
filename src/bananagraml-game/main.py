@@ -79,7 +79,7 @@ class Cell(pygame.sprite.Sprite):
     def _render_center(self) -> None:
         pygame.draw.circle(
             self.image,
-            "red",
+            "black",
             center=(self.image.get_width() // 2, self.image.get_height() // 2),
             radius=4,
         )
@@ -126,6 +126,15 @@ class Tile(pygame.sprite.Sprite):
 
         elif event.type == pygame.MOUSEMOTION:
             self.handle_motion(event, cells)
+
+    def change_background_color(self, isvalid: bool):
+        if not isvalid:
+            color = "red"
+        else:
+            # color = self.original_color
+            color = "green"
+        self.image.fill(color)
+        self._render_text()
 
     def handle_drop(
         self,
@@ -311,6 +320,27 @@ class GameRenderer:
         return cells
 
     @staticmethod
+    def draw_stats_area(screen, model) -> pygame.Rect:
+        x = GameConfig.SCREEN_WIDTH - 100 - 150
+        y = (
+            GameConfig.SCREEN_HEIGHT
+            - GameConfig.DUMP_AREA_SIZE
+            - GameConfig.DUMP_AREA_MARGIN
+        )
+        rect = pygame.Rect(x, y, 180, 50)
+        font = pygame.font.Font(None, 20)
+        final_text = "".join(
+            [
+                f"tiles on board: {len(model.tiles_on_board)}\n"
+                f"tiles in bank: {model.tile_bank.get_bank_size()}\n"
+            ]
+        )
+        text_surface = font.render(final_text, True, "white")
+        text_rect = text_surface.get_rect(center=(rect.center))
+        screen.blit(text_surface, text_rect)
+        return rect
+
+    @staticmethod
     def draw_dump_area() -> pygame.Rect:
         x = (
             GameConfig.SCREEN_WIDTH
@@ -457,6 +487,7 @@ class Game:
         # Draw board tiles
         for tile in self.model.tiles_on_board:
             if isinstance(tile, Tile):
+                tile.change_background_color(self.model.board_valid)
                 self.screen.blit(tile.image, tile.rect)
 
         # Update and draw bench
@@ -469,7 +500,8 @@ class Game:
         # Draw dump area
         dump_area = GameRenderer.draw_dump_area()
         pygame.draw.rect(self.screen, GameConfig.DUMP_AREA_COLOR, dump_area, 2)
-
+        stats = GameRenderer.draw_stats_area(self.screen, self.model)
+        pygame.draw.rect(self.screen, "blue", stats, 2)
         self.drag_select.draw(self.screen, self.model.tiles_on_board)
         pygame.display.flip()
 
