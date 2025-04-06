@@ -4,6 +4,7 @@
 """
 import math
 import random
+import uuid
 
 dictionary = None
 with open("dictionary.txt", encoding="utf-8") as f:
@@ -116,35 +117,41 @@ class BananaGramlModel:
                 we would be building out the string as we iterate.
         """
 
-        def validate_row(i, j, board):
+        def check_row(i, j, board):
             word = ""
             while board[i][j] is not None:
-                word += board[i][j].__str__()
+                word += board[i][j].get_value()
                 j += 1
-            print(word)
-            return self.validate_words([word])
+            return word
+            # return self.validate_words([word])
 
-        def validate_col(i, j, board):
+        def check_col(i, j, board):
             word = ""
             while board[i][j] is not None:
-                word += board[i][j].__str__()
+                word += board[i][j].get_value()
                 i += 1
-            print(word)
-            return self.validate_words([word])
+            return word
+            # return self.validate_words([word])
 
+        all_words = []
         for i in range(row, len(board)):
             for j in range(column, len(board[0])):
                 if board[i][j] is not None:
                     # met a top tile of a col.
                     if board[i + 1][j] is not None and board[i - 1][j] is None:
-                        if not validate_col(i, j, board):
+                        word = check_col(i, j, board)
+                        if not self.validate_words([word]):
                             return False
+                        all_words.append(word)
 
                     # met a leftest most tile on the board.
                     if board[i][j + 1] is not None and board[i][j - 1] is None:
-                        if not validate_row(i, j, board):
+                        word = check_row(i, j, board)
+                        if not self.validate_words([word]):
                             return False
+                        all_words.append(word)
 
+        print(all_words)
         return True
 
     # FIXME/TODO
@@ -161,6 +168,7 @@ class BananaGramlModel:
         if tile in self.tiles_on_board:
             self.tiles_on_board.remove(tile)
         self.tiles_on_board.append(tile)
+        print(self.tiles_on_board)
 
         # remove the tile from the bench. if we take the tile from the bench and
         # place it on the board, we want to remove it from the bench.
@@ -168,6 +176,7 @@ class BananaGramlModel:
             self.tiles_on_bench.remove(tile.model_tile)
 
         self.board_valid = self.validate()
+        # dumps the coordinates etc into a json file for review.
         self.dump_board()
 
         if len(self.tiles_on_bench) == 0 and self.board_valid:
@@ -180,7 +189,7 @@ class BananaGramlModel:
                 for j in range(0, len(board[0])):
                     if board[i][j] is not None:
                         tile = board[i][j]
-                        f.write(tile.__str__())
+                        f.write(tile.get_value())
                         f.write(" has position: ")
                         f.write(f"{i}, {j}")
                         f.write("\n")
@@ -197,14 +206,17 @@ class BananaGramlModel:
         token = self.tile_bank.peel()
         self.tiles_on_bench.append(token)
 
-    def dump(self, token, location="bench"):
+    # FIXME, cannot dump a tile from a board.
+    def dump(self, token):
         if token in self.tiles_on_bench:
             for bench_tile in self.tiles_on_bench:
                 if bench_tile == token:
                     self.tiles_on_bench.remove(token)
-        else:
+        # FIXME this is not being registered for some reason.
+        elif token in self.tiles_on_board:
             for board_tile in self.tiles_on_board:
                 if board_tile == token:
+                    print(board_tile)
                     self.tiles_on_board.remove(token)
         new_tokens = self.tile_bank.dump(token)
         for token in new_tokens:
@@ -283,8 +295,9 @@ class ModelTile:
     def __init__(self, value: str, position):
         self.value = value
         self.position = position
+        self.id = uuid.uuid4().__str__()
 
-    def __str__(self):
+    def get_value(self) -> str:
         return self.value
 
     def set_position(self, position):
@@ -292,6 +305,18 @@ class ModelTile:
 
     def get_position(self):
         return self.position
+
+    # NOTE, this needs to be in place. Otherwise when doing equality checks
+    # within a dictionary (tile in dictionary), we will be performing an equality check
+    # for the tiles default .value field, rather than a specific field that we define
+    # uniquely per class instance.
+    def __eq__(self, other):
+        if not isinstance(other, ModelTile):
+            return False
+        return self.id == other.id
+
+    def __hash__(self):
+        return hash(self.id)
 
 
 class TileBank:

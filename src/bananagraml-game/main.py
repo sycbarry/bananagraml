@@ -147,11 +147,11 @@ class Tile(pygame.sprite.Sprite):
         if dump_area.collidepoint(self.rect.center):
             if self.model_tile:
                 # Remove from model's board tiles if it's there
-                if self in model.tiles_on_board:
-                    model.tiles_on_board.remove(self)
+                # if self in model.tiles_on_board:
+                # model.tiles_on_board.remove(self)
                 model.dump(self.model_tile)
-                self.kill()  # Remove the tile sprite
                 self.dragging = False  # Ensure dragging is set to False
+                self.kill()  # Remove the tile sprite
                 return
 
         # Check if tile was dropped on another board tile
@@ -169,6 +169,7 @@ class Tile(pygame.sprite.Sprite):
         for cell in cells:
             if self.rect.collidepoint(cell.rect.center):
                 model.place_tile_on_board(self, cell.rect.center)
+                print(len(model.tiles_on_board))
                 self.rect.center = cell.rect.center
                 self.original_position = cell.rect.center
                 self.dragging = False
@@ -332,6 +333,7 @@ class GameRenderer:
         final_text = "".join(
             [
                 f"tiles on board: {len(model.tiles_on_board)}\n"
+                f"tiles on bench: {len(model.tiles_on_bench)}\n"
                 f"tiles in bank: {model.tile_bank.get_bank_size()}\n"
             ]
         )
@@ -363,26 +365,31 @@ class GameRenderer:
             return tiles
         X_orig = bench.get_rect().x + 20
         Y_orig = GameConfig.SCREEN_HEIGHT - GameConfig.BENCH_HEIGHT + 50
-        existing_tile_map = {}
+
+        # Track which model tiles we've already created game tiles for
+        handled_model_tiles = set()
+
+        # First, add existing tiles that are still on the bench
         if existing_tiles:
             for tile in existing_tiles:
-                if tile.model_tile and tile.model_tile in model.tiles_on_bench:
-                    existing_tile_map[tile.model_tile] = tile
+                if tile.model_tile in model.tiles_on_bench:
+                    tiles.add(tile)
+                    handled_model_tiles.add(tile.model_tile)
+                    """
+                    if not tile.dragging:
+                        tile.rect.center = (X_orig, Y_orig)
+                    """
+                    X_orig += 25
+
+        # Create new tiles for any model tiles we haven't handled yet
         for model_tile in model.tiles_on_bench:
-            if model_tile in existing_tile_map:
-                game_tile = existing_tile_map[model_tile]
-                # TODO double check this.
-                """
-                if not game_tile.dragging:
-                    game_tile.rect.center = (X_orig, Y_orig)
-                """
-                tiles.add(game_tile)
-            else:
+            if model_tile not in handled_model_tiles:
                 game_tile = Tile(
                     pos=(X_orig, Y_orig), size=(20, 20), model_tile=model_tile
                 )
                 tiles.add(game_tile)
-            X_orig += 25
+                X_orig += 25
+
         return tiles
 
     @staticmethod
@@ -491,9 +498,8 @@ class Game:
                 self.screen.blit(tile.image, tile.rect)
 
         # Update and draw bench
-        self.bench_tiles = GameRenderer.render_bench_tiles(
-            self.model, self.bench, self.bench_tiles
-        )
+        b = GameRenderer.render_bench_tiles(self.model, self.bench, self.bench_tiles)
+        self.bench_tiles = b
         if self.bench_tiles:
             self.bench_tiles.draw(self.screen)
 
