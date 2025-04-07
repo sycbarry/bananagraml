@@ -24,25 +24,8 @@ class BananaGramlModel:
     def board_tiles(self):
         return self.tiles_on_board
 
-    """
-    def place_tile_on_board(self, tile, position):
-        if tile in self.tiles_on_board:
-            self.tiles_on_board.remove(tile)
-        tile.set_position(position)
-        self.tiles_on_board.append(tile)
-    """
-
     # TODO finalize this.
     def validate(self):
-        """
-        check if we have a valid board game.
-        this is the logic of a banangrams game here.
-        Restrictions for word validation:
-            - left to right
-            - top to bottom
-            - all tiles must be connected (no disconnected tiles)
-        """
-
         # clean up the board and re-build it during each validate() call.
         self.clean_board()
         for tile in self.tiles_on_board:
@@ -52,6 +35,7 @@ class BananaGramlModel:
                 self.board[x][y] = tile.model_tile
 
         """
+        FIXME finish this at some point.
         isnot_disconnected_board = self.validate_disconnected_tiles(self.board)
         print(isnot_disconnected_board)
         if isnot_disconnected_board:
@@ -168,7 +152,6 @@ class BananaGramlModel:
         if tile in self.tiles_on_board:
             self.tiles_on_board.remove(tile)
         self.tiles_on_board.append(tile)
-        print(self.tiles_on_board)
 
         # remove the tile from the bench. if we take the tile from the bench and
         # place it on the board, we want to remove it from the bench.
@@ -195,8 +178,7 @@ class BananaGramlModel:
                         f.write("\n")
 
     def init_bench(self, count):
-        for i in range(0, 20):
-            # for i in range(0, count):
+        for i in range(0, count):
             self.peel()
 
     def remaining_tiles(self):
@@ -206,21 +188,16 @@ class BananaGramlModel:
         token = self.tile_bank.peel()
         self.tiles_on_bench.append(token)
 
-    # FIXME, cannot dump a tile from a board.
     def dump(self, token):
         if token in self.tiles_on_bench:
-            for bench_tile in self.tiles_on_bench:
-                if bench_tile == token:
-                    self.tiles_on_bench.remove(token)
-        # FIXME this is not being registered for some reason.
+            self.tiles_on_bench.remove(token)
         elif token in self.tiles_on_board:
-            for board_tile in self.tiles_on_board:
-                if board_tile == token:
-                    print(board_tile)
-                    self.tiles_on_board.remove(token)
-        new_tokens = self.tile_bank.dump(token)
-        for token in new_tokens:
-            self.tiles_on_bench.append(token)
+            self.tiles_on_board.remove(token)
+        self.tile_bank.dump(token)
+        if self.tile_bank.can_dump():
+            for i in range(0, 3):
+                peeled_tile = self.tile_bank.peel()
+                self.tiles_on_bench.append(peeled_tile)
 
     def get_game_state(self):
         return {"board_valid": self.board_valid}
@@ -341,9 +318,9 @@ class TileBank:
         """
         removes a value from the tile bank and returns it
         """
-        index = random.randint(0, len(self.bank))
+        index = random.randint(0, len(self.bank) - 1)
         token = self.bank[index]
-        self.bank.pop(index)
+        self.bank.remove(token)
         return token
 
     def dump(self, token):
@@ -352,15 +329,8 @@ class TileBank:
         those 3 tiles are returned to the user in exchange for a token provided
         by the user.
         """
-        if len(self.bank) >= 3:
-            self.bank.append(token)
-            returned_tokens = []
-            for i in range(0, 3):
-                returned_tokens.append(self.peel())
-            return tuple(returned_tokens)
-        else:
-            # TODO provide some better ruling logic on how to handle this case.
-            return token
+        self.bank.append(token)
+        random.shuffle(self.bank)
 
 
 def init_game_tiles():

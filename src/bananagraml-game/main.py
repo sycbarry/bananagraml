@@ -127,15 +127,6 @@ class Tile(pygame.sprite.Sprite):
         elif event.type == pygame.MOUSEMOTION:
             self.handle_motion(event, cells)
 
-    def change_background_color(self, isvalid: bool):
-        if not isvalid:
-            color = "red"
-        else:
-            # color = self.original_color
-            color = "green"
-        self.image.fill(color)
-        self._render_text()
-
     def handle_drop(
         self,
         model: BananaGramlModel,
@@ -146,12 +137,9 @@ class Tile(pygame.sprite.Sprite):
         # Check if tile was dropped in dump area
         if dump_area.collidepoint(self.rect.center):
             if self.model_tile:
-                # Remove from model's board tiles if it's there
-                # if self in model.tiles_on_board:
-                # model.tiles_on_board.remove(self)
                 model.dump(self.model_tile)
                 self.dragging = False  # Ensure dragging is set to False
-                self.kill()  # Remove the tile sprite
+                self.kill()  # Remove the tile sprite from the UI.
                 return
 
         # Check if tile was dropped on another board tile
@@ -160,6 +148,7 @@ class Tile(pygame.sprite.Sprite):
                 continue
             if self.rect.collidepoint(board_tile.rect.center):
                 self.rect.center = self.original_position
+                model.tiles_on_bench.append(self.model_tile)
                 self.dragging = False
                 return
 
@@ -169,7 +158,6 @@ class Tile(pygame.sprite.Sprite):
         for cell in cells:
             if self.rect.collidepoint(cell.rect.center):
                 model.place_tile_on_board(self, cell.rect.center)
-                print(len(model.tiles_on_board))
                 self.rect.center = cell.rect.center
                 self.original_position = cell.rect.center
                 self.dragging = False
@@ -183,8 +171,16 @@ class Tile(pygame.sprite.Sprite):
             for cell in cells:
                 if self.rect.collidepoint(cell.rect.center):
                     self.rect.center = cell.rect.center
-
         self._update_appearance(event.pos)
+
+    def change_background_color(self, isvalid: bool):
+        if not isvalid:
+            color = "red"
+        else:
+            # color = self.original_color
+            color = "green"
+        self.image.fill(color)
+        self._render_text()
 
     def _update_appearance(self, mouse_pos: Tuple[int, int]) -> None:
         if self.is_selected:
@@ -366,22 +362,24 @@ class GameRenderer:
         X_orig = bench.get_rect().x + 20
         Y_orig = GameConfig.SCREEN_HEIGHT - GameConfig.BENCH_HEIGHT + 50
 
-        # Track which model tiles we've already created game tiles for
-        handled_model_tiles = set()
-
-        # First, add existing tiles that are still on the bench
+        # Track which model tiles have been handled
+        handled_model_tiles = []
+        
+        # First, preserve existing tiles that are in the bench
         if existing_tiles:
             for tile in existing_tiles:
                 if tile.model_tile in model.tiles_on_bench:
+                    # Keep the existing tile in the group
                     tiles.add(tile)
-                    handled_model_tiles.add(tile.model_tile)
-                    """
+                    handled_model_tiles.append(tile.model_tile)
+                    
+                    # Only reset position if it's not being dragged
                     if not tile.dragging:
-                        tile.rect.center = (X_orig, Y_orig)
-                    """
+                        if tile.rect.center != tile.original_position:
+                            tile.rect.center = (X_orig, Y_orig)
                     X_orig += 25
-
-        # Create new tiles for any model tiles we haven't handled yet
+        
+        # Create new tiles for any model tiles that weren't in existing_tiles
         for model_tile in model.tiles_on_bench:
             if model_tile not in handled_model_tiles:
                 game_tile = Tile(
@@ -389,7 +387,7 @@ class GameRenderer:
                 )
                 tiles.add(game_tile)
                 X_orig += 25
-
+                
         return tiles
 
     @staticmethod
@@ -414,6 +412,7 @@ class Game:
         self.clock = pygame.time.Clock()
         self.model = model
         self.drag_select = DragSelect()
+        self.is_dragging = False
         self.board_cells = GameRenderer.create_cells(model)
         self.bench = GameRenderer.draw_bench()
         self.board = GameRenderer.draw_board()
@@ -497,13 +496,13 @@ class Game:
                 tile.change_background_color(self.model.board_valid)
                 self.screen.blit(tile.image, tile.rect)
 
-        # Update and draw bench
-        b = GameRenderer.render_bench_tiles(self.model, self.bench, self.bench_tiles)
-        self.bench_tiles = b
-        if self.bench_tiles:
-            self.bench_tiles.draw(self.screen)
+        # draw the bench tiles on the bench
+        self.bench_tiles = GameRenderer.render_bench_tiles(
+            self.model, self.bench, self.bench_tiles
+        )
+        self.bench_tiles.draw(self.screen)
 
-        # Draw dump area
+        # render dump area
         dump_area = GameRenderer.draw_dump_area()
         pygame.draw.rect(self.screen, GameConfig.DUMP_AREA_COLOR, dump_area, 2)
         stats = GameRenderer.draw_stats_area(self.screen, self.model)
@@ -529,7 +528,7 @@ def main():
         GameConfig.DIVIDER,
     )
     model = BananaGramlModel(board_dimensions)
-    model.init_bench(1)
+    model.init_bench(10)
     game = Game(model)
     game.run()
 
