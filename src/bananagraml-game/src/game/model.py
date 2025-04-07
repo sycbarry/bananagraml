@@ -334,33 +334,41 @@ class TileBank:
 
 
 def init_game_tiles():
-    bananagrams_tiles = (
-        [ModelTile("A", position=(0, 0))] * 13
-        + [ModelTile("B", position=(0, 0))] * 3
-        + [ModelTile("C", position=(0, 0))] * 3
-        + [ModelTile("D", position=(0, 0))] * 6
-        + [ModelTile("E", position=(0, 0))] * 18
-        + [ModelTile("F", position=(0, 0))] * 3
-        + [ModelTile("G", position=(0, 0))] * 4
-        + [ModelTile("H", position=(0, 0))] * 3
-        + [ModelTile("I", position=(0, 0))] * 12
-        + [ModelTile("J", position=(0, 0))] * 2
-        + [ModelTile("K", position=(0, 0))] * 2
-        + [ModelTile("L", position=(0, 0))] * 5
-        + [ModelTile("M", position=(0, 0))] * 3
-        + [ModelTile("N", position=(0, 0))] * 8
-        + [ModelTile("O", position=(0, 0))] * 11
-        + [ModelTile("P", position=(0, 0))] * 3
-        + [ModelTile("Q", position=(0, 0))] * 2
-        + [ModelTile("R", position=(0, 0))] * 9
-        + [ModelTile("S", position=(0, 0))] * 6
-        + [ModelTile("T", position=(0, 0))] * 9
-        + [ModelTile("U", position=(0, 0))] * 6
-        + [ModelTile("V", position=(0, 0))] * 3
-        + [ModelTile("W", position=(0, 0))] * 3
-        + [ModelTile("X", position=(0, 0))] * 2
-        + [ModelTile("Y", position=(0, 0))] * 3
-        + [ModelTile("Z", position=(0, 0))] * 2
-    )
+    bananagrams_tiles = []
+
+    # Create tiles based on letter frequency
+    letter_counts = {
+        "A": 13,
+        "B": 3,
+        "C": 3,
+        "D": 6,
+        "E": 18,
+        "F": 3,
+        "G": 4,
+        "H": 3,
+        "I": 12,
+        "J": 2,
+        "K": 2,
+        "L": 5,
+        "M": 3,
+        "N": 8,
+        "O": 11,
+        "P": 3,
+        "Q": 2,
+        "R": 9,
+        "S": 6,
+        "T": 9,
+        "U": 6,
+        "V": 3,
+        "W": 3,
+        "X": 2,
+        "Y": 3,
+        "Z": 2,
+    }
+
+    for letter, count in letter_counts.items():
+        for _ in range(count):
+            bananagrams_tiles.append(ModelTile(letter, position=(0, 0)))
+
     random.shuffle(bananagrams_tiles)
     return bananagrams_tiles

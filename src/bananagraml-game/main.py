@@ -4,6 +4,7 @@ from src.game.model import BananaGramlModel
 import sys
 from dataclasses import dataclass
 from typing import Tuple, List, Optional
+import uuid
 
 
 # Constants
@@ -359,35 +360,37 @@ class GameRenderer:
         tiles = pygame.sprite.Group()
         if not model.tiles_on_bench:
             return tiles
+
         X_orig = bench.get_rect().x + 20
         Y_orig = GameConfig.SCREEN_HEIGHT - GameConfig.BENCH_HEIGHT + 50
 
-        # Track which model tiles have been handled
-        handled_model_tiles = []
-        
-        # First, preserve existing tiles that are in the bench
+        # check for tiles that have already been rendered on the bench
+        # so that we are not re-rendering tiles with a static fixed x,y position.
+        # so here we create a map of tiles that already exist on the board.
+        existing_tile_map = {}
         if existing_tiles:
             for tile in existing_tiles:
                 if tile.model_tile in model.tiles_on_bench:
-                    # Keep the existing tile in the group
-                    tiles.add(tile)
-                    handled_model_tiles.append(tile.model_tile)
-                    
-                    # Only reset position if it's not being dragged
-                    if not tile.dragging:
-                        if tile.rect.center != tile.original_position:
-                            tile.rect.center = (X_orig, Y_orig)
-                    X_orig += 25
-        
-        # Create new tiles for any model tiles that weren't in existing_tiles
+                    existing_tile_map[tile.model_tile] = tile
+
+        # then here we loop through each model tile on the model.tiles_on_bench, and check
+        # 1. is the tile already rendered as a sprite? if so, only set it's center to the right of previous tiles on the bench if we are not dragging it
+        # 2. if it's not a tile that has been rendered as a sprite, then make a new Tile() object and set it's coordinate center to the right of the previously
+        # rendered tiles on the bench.
         for model_tile in model.tiles_on_bench:
-            if model_tile not in handled_model_tiles:
+            if model_tile in existing_tile_map:
+                tile = existing_tile_map[model_tile]
+                if not tile.dragging:
+                    tile.rect.center = (X_orig, Y_orig)
+                tiles.add(tile)
+            else:
                 game_tile = Tile(
                     pos=(X_orig, Y_orig), size=(20, 20), model_tile=model_tile
                 )
                 tiles.add(game_tile)
-                X_orig += 25
-                
+
+            X_orig += 25
+
         return tiles
 
     @staticmethod
