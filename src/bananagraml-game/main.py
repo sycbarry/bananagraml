@@ -174,12 +174,14 @@ class Tile(pygame.sprite.Sprite):
                     self.rect.center = cell.rect.center
         self._update_appearance(event.pos)
 
-    def change_background_color(self, isvalid: bool):
+    def change_background_color(self, isvalid: bool, victory: bool):
         if not isvalid:
             color = "red"
         else:
-            # color = self.original_color
-            color = "green"
+            if victory == True:
+                color = "yellow"
+            else:
+                color = "green"
         self.image.fill(color)
         self._render_text()
 
@@ -496,7 +498,7 @@ class Game:
         # Draw board tiles
         for tile in self.model.tiles_on_board:
             if isinstance(tile, Tile):
-                tile.change_background_color(self.model.board_valid)
+                tile.change_background_color(self.model.board_valid, self.model.victory)
                 self.screen.blit(tile.image, tile.rect)
 
         # draw the bench tiles on the bench

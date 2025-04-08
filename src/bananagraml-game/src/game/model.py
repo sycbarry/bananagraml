@@ -14,6 +14,7 @@ with open("dictionary.txt", encoding="utf-8") as f:
 class BananaGramlModel:
     def __init__(self, BOARD_DIMENSIONS: (int, int, int)):
         self.board_valid = True
+        self.victory = False
         self.coordinates = self.build_coordinates(coordinates=BOARD_DIMENSIONS)
         self.coordinate_ref = self.build_coordinate_ref()
         self.board = []
@@ -33,15 +34,6 @@ class BananaGramlModel:
             if center in self.coordinate_ref:
                 x, y = self.coordinate_ref[center]
                 self.board[x][y] = tile.model_tile
-
-        """
-        FIXME finish this at some point.
-        isnot_disconnected_board = self.validate_disconnected_tiles(self.board)
-        print(isnot_disconnected_board)
-        if isnot_disconnected_board:
-            return False
-        """
-
         is_valid = self.build_words("", 0, 0, self.board)
         return is_valid
 
@@ -55,27 +47,6 @@ class BananaGramlModel:
         if word in dictionary:
             return True
         return False
-
-    def validate_disconnected_tiles(self, board=None):
-        """
-        check if each tile is connected
-        we are checking if we have a disconnected tile here.
-        """
-        if board is None:
-            return False
-        for i in range(0, len(board)):
-            for j in range(0, len(board[i])):
-                if board[i][j] == None:
-                    continue
-                if board[i][j] is not None:
-                    if (
-                        board[i - 1][j] is None
-                        and board[i + 1][j] is None
-                        and board[i][j - 1] is None
-                        and board[i][j + 1] is None
-                    ):
-                        return False
-        return True
 
     def build_words(self, word: str, row: int, column: int, board=None):
         """
@@ -121,6 +92,15 @@ class BananaGramlModel:
         for i in range(row, len(board)):
             for j in range(column, len(board[0])):
                 if board[i][j] is not None:
+                    # check if everything around it is disconnected.
+                    if (
+                        board[i + 1][j] is None
+                        and board[i - 1][j] is None
+                        and board[i][j + 1] is None
+                        and board[i][j - 1] is None
+                    ):
+                        return False
+
                     # met a top tile of a col.
                     if board[i + 1][j] is not None and board[i - 1][j] is None:
                         word = check_col(i, j, board)
@@ -157,11 +137,8 @@ class BananaGramlModel:
         # place it on the board, we want to remove it from the bench.
         if tile.model_tile in self.tiles_on_bench:
             self.tiles_on_bench.remove(tile.model_tile)
-
         self.board_valid = self.validate()
-        # dumps the coordinates etc into a json file for review.
-        self.dump_board()
-
+        self.dump_board()  # dumps the coordinates etc into a json file for review.
         if len(self.tiles_on_bench) == 0 and self.board_valid:
             self.peel()
 
@@ -186,18 +163,23 @@ class BananaGramlModel:
 
     def peel(self):
         token = self.tile_bank.peel()
-        self.tiles_on_bench.append(token)
+        if token is not None:
+            self.tiles_on_bench.append(token)
+        else:
+            self.victory = True
 
     def dump(self, token):
         if token in self.tiles_on_bench:
             self.tiles_on_bench.remove(token)
         elif token in self.tiles_on_board:
             self.tiles_on_board.remove(token)
-        self.tile_bank.dump(token)
         if self.tile_bank.can_dump():
+            self.tile_bank.dump(token)
             for i in range(0, 3):
                 peeled_tile = self.tile_bank.peel()
                 self.tiles_on_bench.append(peeled_tile)
+        else:
+            self.tiles_on_bench.append(peeled_tile)
 
     def get_game_state(self):
         return {"board_valid": self.board_valid}
@@ -314,14 +296,21 @@ class TileBank:
             return True
         return False
 
+    def can_peel(self):
+        if len(self.bank) > 0:
+            return True
+        return False
+
     def peel(self) -> ModelTile:
         """
         removes a value from the tile bank and returns it
         """
-        index = random.randint(0, len(self.bank) - 1)
-        token = self.bank[index]
-        self.bank.remove(token)
-        return token
+        if self.can_peel():
+            index = random.randint(0, len(self.bank))
+            token = self.bank[index]
+            self.bank.remove(token)
+            return token
+        return None
 
     def dump(self, token):
         """
