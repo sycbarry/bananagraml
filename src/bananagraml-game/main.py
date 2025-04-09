@@ -89,6 +89,7 @@ class Cell(pygame.sprite.Sprite):
 class Tile(pygame.sprite.Sprite):
     def __init__(self, pos: Tuple[int, int], size: Tuple[int, int], model_tile=None):
         super().__init__()
+        self.is_focused = False
         self.image = pygame.Surface(size)
         self.original_color = GameConfig.TILE_COLOR
         self.image.fill(self.original_color)
@@ -407,6 +408,11 @@ class GameRenderer:
         bench.fill(GameConfig.BENCH_COLOR)
         return bench
 
+    @staticmethod
+    def draw_cross_hair(position) -> pygame.Rect:
+        crosshair = pygame.Rect(position[0], position[1], 30, 30)
+        return crosshair
+
 
 class Game:
     def __init__(self, model: BananaGramlModel):
@@ -418,6 +424,9 @@ class Game:
         self.model = model
         self.drag_select = DragSelect()
         self.is_dragging = False
+        self.focus_area = "BENCH"
+        self.cross_hair_position = (230, 230)  # the default position for the crosshair
+        self.cross_hair = GameRenderer.draw_cross_hair(self.cross_hair_position)
         self.board_cells = GameRenderer.create_cells(model)
         self.bench = GameRenderer.draw_bench()
         self.board = GameRenderer.draw_board()
@@ -431,7 +440,59 @@ class Game:
             self.board_cells.update(event)
             self._update_tiles(event)
             self._handle_mouse_event(event)
+            self._handle_keyboard_actions(event)
         return True
+
+    def _handle_keyboard_actions(self, event: pygame.event.Event) -> None:
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_RETURN:
+                print("key pressed: k_return")
+            if event.key == pygame.K_SPACE:
+                if self.focus_area == "BENCH":
+                    self.focus_area = "BOARD"
+                else:
+                    self.focus_area = "BENCH"
+                print(self.focus_area)
+            # left arrow
+            if event.key == pygame.K_LEFT:
+                if self.cross_hair_position[0] < 30:
+                    return self.cross_hair_position
+                c = list(self.cross_hair_position)
+                c[0] = c[0] - 30
+                self.cross_hair_position = tuple(c)
+            # right arrow
+            if event.key == pygame.K_RIGHT:
+                if (
+                    self.cross_hair_position[0]
+                    >= pygame.sprite.Group.sprites(self.board_cells)[
+                        len(self.board_cells) - 1
+                    ].rect.center[0]
+                    - 30
+                ):
+                    return self.cross_hair_position
+                c = list(self.cross_hair_position)
+                c[0] = c[0] + 30
+                self.cross_hair_position = tuple(c)
+            # up arrow
+            if event.key == pygame.K_UP:
+                if self.cross_hair_position[1] < 30:
+                    return self.cross_hair_position
+                c = list(self.cross_hair_position)
+                c[1] = c[1] - 30
+                self.cross_hair_position = tuple(c)
+            # down arrow
+            if event.key == pygame.K_DOWN:
+                if (
+                    self.cross_hair_position[1]
+                    >= pygame.sprite.Group.sprites(self.board_cells)[
+                        len(self.board_cells) - 1
+                    ].rect.center[1]
+                    + 30
+                ):
+                    return self.cross_hair_position
+                c = list(self.cross_hair_position)
+                c[1] = c[1] + 30
+                self.cross_hair_position = tuple(c)
 
     def _update_tiles(self, event: pygame.event.Event) -> None:
         for tile in self.model.tiles_on_board:
@@ -513,6 +574,11 @@ class Game:
         stats = GameRenderer.draw_stats_area(self.screen, self.model)
         pygame.draw.rect(self.screen, "blue", stats, 2)
         self.drag_select.draw(self.screen, self.model.tiles_on_board)
+
+        # TODO check if we have selected BOARD or BENCH
+        cross_hair = GameRenderer.draw_cross_hair(self.cross_hair_position)
+        pygame.draw.rect(self.screen, "red", cross_hair, 2)
+
         pygame.display.flip()
 
     def run(self) -> None:
