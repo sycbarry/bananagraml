@@ -129,6 +129,9 @@ class Tile(pygame.sprite.Sprite):
         elif event.type == pygame.MOUSEMOTION:
             self.handle_motion(event, cells)
 
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN:
+            self.handle_drop(model, cells)
+
     def handle_drop(
         self,
         model: BananaGramlModel,
@@ -154,7 +157,6 @@ class Tile(pygame.sprite.Sprite):
                 self.dragging = False
                 return
 
-        # TODO
         # when dropping tile on cell, we need to ensure that the tile is being placed directly
         # on a coordainte that is identical to what we have in our model.coordinate_ref hash
         for cell in cells:
@@ -190,6 +192,7 @@ class Tile(pygame.sprite.Sprite):
         if self.is_selected:
             color = GameConfig.TILE_SELECTED_COLOR
         elif self.rect.collidepoint(mouse_pos):
+            print(self.rect.center)
             color = GameConfig.TILE_HOVER_COLOR
         else:
             color = self.original_color
@@ -425,9 +428,8 @@ class Game:
         self.drag_select = DragSelect()
         self.is_dragging = False
         self.focus_area = "BOARD"
-        self.cross_hair_width = 30
-        self.cross_hair_height = 30
         self.cross_hair_position = (0, 0)  # the default position for the crosshair
+        self.bench_cross_hair_position_index = 0
         self.bench_cross_hair_position = (
             100,
             100,
@@ -443,21 +445,34 @@ class Game:
             if event.type == pygame.QUIT:
                 return False
 
+            self._handle_keyboard_actions(event)
             self.board_cells.update(event)
             self._update_tiles(event)
             self._handle_mouse_event(event)
-            self._handle_keyboard_actions(event)
         return True
 
     def _handle_board_keyboard_actions(self, event: pygame.event.Event) -> None:
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_RETURN:
+                if self.selected_tile is not None:
+                    for cell in self.board_cells:
+                        # TODO
+                        """
+                        - ensure we are not handle_drop in the tile everytime we hit enter.
+                        - we need to make sure that we can hit "enter" on a tile on the board and 
+                            move it around as well 
+                            (
+                                - ie same functionality as the the bench to tile
+                                - needs to be in place for board tile to board cell
+                            )
+                        """
+                        if self.cross_hair.collidepoint(cell.rect.center):
+                            self.selected_tile.rect.center = cell.rect.center
                 print("key pressed: k_return")
             if event.key == pygame.K_SPACE:
                 if self.focus_area == "BENCH":
                     self.focus_area = "BOARD"
                 else:
-                    self.init_bench_tile_position()
                     self.focus_area = "BENCH"
             # left arrow
             if event.key == pygame.K_LEFT:
@@ -500,33 +515,45 @@ class Game:
                 c[1] = c[1] + 30
                 self.cross_hair_position = tuple(c)
 
-    def init_bench_tile_position(self):
+    def init_bench_cross_hair(self):
         bench_tiles = self.bench_tiles.sprites()
         if bench_tiles is not None:
             if len(bench_tiles) > 0:
-                first_tile_center = bench_tiles[0].rect.center
+                x = bench_tiles[self.bench_cross_hair_position_index].rect.x
+                y = bench_tiles[self.bench_cross_hair_position_index].rect.y
+                first_tile_center = (x, y)
                 self.bench_cross_hair_position = first_tile_center
-                self.cross_hair.height = 20
-                self.cross_hair.width = 20
+
+    def cycle_bench_cross_hair_left(self):
+        if self.bench_cross_hair_position_index <= 0:
+            self.bench_cross_hair_position_index = len(self.bench_tiles.sprites()) - 1
+        else:
+            self.bench_cross_hair_position_index -= 1
+
+    def cycle_bench_cross_hair_right(self):
+        if self.bench_cross_hair_position_index >= len(self.bench_tiles.sprites()) - 1:
+            self.bench_cross_hair_position_index = 0
+        else:
+            self.bench_cross_hair_position_index += 1
 
     def _handle_bench_keyboard_actions(self, event: pygame.event.Event) -> None:
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_RETURN:
-                None
+                for tile in self.bench_tiles:
+                    if self.cross_hair.collidepoint(tile.rect.center):
+                        self.selected_tile = tile
             if event.key == pygame.K_SPACE:
                 if self.focus_area == "BENCH":
                     self.focus_area = "BOARD"
                 else:
                     # calculate the first tile location on the bench first.
-                    self.init_bench_tile_position()
                     self.focus_area = "BENCH"
-                print(self.focus_area)
             # left arrow
             if event.key == pygame.K_LEFT:
-                None
+                self.cycle_bench_cross_hair_left()
             # right arrow
             if event.key == pygame.K_RIGHT:
-                None
+                self.cycle_bench_cross_hair_right()
             # up arrow
             if event.key == pygame.K_UP:
                 None
@@ -622,15 +649,18 @@ class Game:
         self.drag_select.draw(self.screen, self.model.tiles_on_board)
 
         if self.focus_area == "BOARD":
-            cross_hair = GameRenderer.draw_cross_hair(self.cross_hair_position, 30, 30)
-            pygame.draw.rect(self.screen, "red", cross_hair, 2)
+            self.cross_hair = GameRenderer.draw_cross_hair(
+                self.cross_hair_position, 30, 30
+            )
+            pygame.draw.rect(self.screen, "red", self.cross_hair, 2)
         else:
-            cross_hair = GameRenderer.draw_cross_hair(
+            self.init_bench_cross_hair()
+            self.cross_hair = GameRenderer.draw_cross_hair(
                 self.bench_cross_hair_position,
                 20,
                 20,
             )
-            pygame.draw.rect(self.screen, "red", cross_hair, 2)
+            pygame.draw.rect(self.screen, "red", self.cross_hair, 2)
 
         pygame.display.flip()
 
