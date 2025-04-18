@@ -129,7 +129,7 @@ class Tile(pygame.sprite.Sprite):
         elif event.type == pygame.MOUSEMOTION:
             self.handle_motion(event, cells)
 
-        elif event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN:
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_x:
             self.handle_drop(model, cells)
 
     def handle_drop(
@@ -453,7 +453,7 @@ class Game:
 
     def _handle_board_keyboard_actions(self, event: pygame.event.Event) -> None:
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_RETURN:
+            if event.key == pygame.K_x:
                 if self.selected_tile is not None:
                     for cell in self.board_cells:
                         # TODO
@@ -468,8 +468,13 @@ class Game:
                         """
                         if self.cross_hair.collidepoint(cell.rect.center):
                             self.selected_tile.rect.center = cell.rect.center
-                print("key pressed: k_return")
-            if event.key == pygame.K_SPACE:
+                            self.selected_tile = None
+                else:
+                    if self.focus_area == "BOARD":
+                        for tile in self.model.board_tiles():
+                            if self.cross_hair.collidepoint(tile.rect.center):
+                                self.selected_tile = tile
+            if event.key == pygame.K_z:
                 if self.focus_area == "BENCH":
                     self.focus_area = "BOARD"
                 else:
@@ -519,6 +524,7 @@ class Game:
         bench_tiles = self.bench_tiles.sprites()
         if bench_tiles is not None:
             if len(bench_tiles) > 0:
+                print(len(bench_tiles), self.bench_cross_hair_position_index)
                 x = bench_tiles[self.bench_cross_hair_position_index].rect.x
                 y = bench_tiles[self.bench_cross_hair_position_index].rect.y
                 first_tile_center = (x, y)
@@ -538,11 +544,11 @@ class Game:
 
     def _handle_bench_keyboard_actions(self, event: pygame.event.Event) -> None:
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_RETURN:
+            if event.key == pygame.K_x:
                 for tile in self.bench_tiles:
                     if self.cross_hair.collidepoint(tile.rect.center):
                         self.selected_tile = tile
-            if event.key == pygame.K_SPACE:
+            if event.key == pygame.K_z:
                 if self.focus_area == "BENCH":
                     self.focus_area = "BOARD"
                 else:
