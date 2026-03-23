@@ -5,9 +5,12 @@
 import math
 import random
 import uuid
+from pathlib import Path
+
+_GAME_ROOT = Path(__file__).resolve().parents[2]
 
 dictionary = None
-with open("dictionary.txt", encoding="utf-8") as f:
+with open(_GAME_ROOT / "dictionary.txt", encoding="utf-8") as f:
     dictionary = set(line.strip().upper() for line in f)
 
 
@@ -118,6 +121,79 @@ class BananaGramlModel:
         print(all_words)
         return True
 
+    def analyze_board_words(self):
+        """
+        Scan the logical grid for word lines and topology, without mutating board_valid.
+        Used for RL reward shaping. Uses bounded neighbor checks (unlike validate's grid walk).
+        """
+        self.clean_board()
+        for tile in self.tiles_on_board:
+            center = tile.model_tile.get_position()
+            if center in self.coordinate_ref:
+                x, y = self.coordinate_ref[center]
+                self.board[x][y] = tile.model_tile
+
+        board = self.board
+        if not board or not board[0]:
+            return {"valid_words": 0, "invalid_words": 0, "isolated_tile": False}
+
+        rows, cols = len(board), len(board[0])
+
+        def cell(ri, rj):
+            if ri < 0 or rj < 0 or ri >= rows or rj >= cols:
+                return None
+            return board[ri][rj]
+
+        def check_row(i, j):
+            word = ""
+            jj = j
+            while jj < cols and board[i][jj] is not None:
+                word += board[i][jj].get_value()
+                jj += 1
+            return word
+
+        def check_col(i, j):
+            word = ""
+            ii = i
+            while ii < rows and board[ii][j] is not None:
+                word += board[ii][j].get_value()
+                ii += 1
+            return word
+
+        valid = 0
+        invalid = 0
+        isolated = False
+
+        for i in range(rows):
+            for j in range(cols):
+                if board[i][j] is None:
+                    continue
+                u, d, le, ri = (
+                    cell(i - 1, j),
+                    cell(i + 1, j),
+                    cell(i, j - 1),
+                    cell(i, j + 1),
+                )
+                if u is None and d is None and le is None and ri is None:
+                    isolated = True
+                    continue
+                if d is not None and u is None:
+                    w = check_col(i, j)
+                    if w:
+                        if self.check_dictionary(w.upper()):
+                            valid += 1
+                        else:
+                            invalid += 1
+                if ri is not None and le is None:
+                    w = check_row(i, j)
+                    if w:
+                        if self.check_dictionary(w.upper()):
+                            valid += 1
+                        else:
+                            invalid += 1
+
+        return {"valid_words": valid, "invalid_words": invalid, "isolated_tile": isolated}
+
     # FIXME/TODO
     """
     We don't really need a model tile's position (center)
@@ -143,7 +219,7 @@ class BananaGramlModel:
             self.peel()
 
     def dump_board(self):
-        with open("board.json", encoding="utf-8", mode="w") as f:
+        with open(_GAME_ROOT / "board.json", encoding="utf-8", mode="w") as f:
             board = self.board
             for i in range(0, len(board)):
                 for j in range(0, len(board[0])):
@@ -182,7 +258,11 @@ class BananaGramlModel:
             self.tiles_on_bench.append(peeled_tile)
 
     def get_game_state(self):
-        return {"board_valid": self.board_valid}
+        return {
+            "board_valid": self.board_valid, 
+            "board": self.board, 
+            "bench": self.tiles_on_bench, 
+            "tiles_on_board": self.tiles_on_board}
 
     def print_layout(self):
         for row in self.coordinates:

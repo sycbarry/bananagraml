@@ -1,6 +1,6 @@
 # Example file showing a circle moving on screen
 import pygame
-from src.game.model import BananaGramlModel
+from .src.game.model import BananaGramlModel
 import sys
 from dataclasses import dataclass
 from typing import Tuple, List, Optional
@@ -192,7 +192,6 @@ class Tile(pygame.sprite.Sprite):
         if self.is_selected:
             color = GameConfig.TILE_SELECTED_COLOR
         elif self.rect.collidepoint(mouse_pos):
-            print(self.rect.center)
             color = GameConfig.TILE_HOVER_COLOR
         else:
             color = self.original_color
@@ -245,7 +244,9 @@ class DragSelect:
         self.selection_rect.y = pos[1] if height < 0 else self.start_pos[1]
         self.selection_rect.height = abs(height)
 
-    def start_group_drag(self, pos: Tuple[int, int], clicked_tile: Tile) -> None:
+    def start_group_drag(
+            self, pos: Tuple[int, int], clicked_tile: Tile
+    ) -> None:
         if clicked_tile in self.selected_tiles:
             self.dragging_group = True
             clicked_center = pygame.math.Vector2(clicked_tile.rect.center)
@@ -294,10 +295,14 @@ class DragSelect:
             for tile in self.selected_tiles:
                 model.place_tile_on_board(tile, tile.rect.center)
 
-    def end_selection(self) -> None:
+    def end_selection(
+        self
+    ) -> None:
         self.selecting = False
 
-    def draw(self, surface: pygame.Surface, tiles: List[Tile]) -> None:
+    def draw(
+        self, surface: pygame.Surface, tiles: List[Tile]
+    ) -> None:
         if self.selecting:
             pygame.draw.rect(
                 surface, GameConfig.SELECT_COLOR[:3], self.selection_rect, 2
@@ -439,6 +444,7 @@ class Game:
         self.bench = GameRenderer.draw_bench()
         self.board = GameRenderer.draw_board()
         self.bench_tiles = GameRenderer.render_bench_tiles(model, self.bench)
+        self.selected_tile = None
 
     def handle_events(self) -> bool:
         for event in pygame.event.get():
@@ -522,22 +528,30 @@ class Game:
 
     def init_bench_cross_hair(self):
         bench_tiles = self.bench_tiles.sprites()
-        if bench_tiles is not None:
-            if len(bench_tiles) > 0:
-                print(len(bench_tiles), self.bench_cross_hair_position_index)
-                x = bench_tiles[self.bench_cross_hair_position_index].rect.x
-                y = bench_tiles[self.bench_cross_hair_position_index].rect.y
-                first_tile_center = (x, y)
-                self.bench_cross_hair_position = first_tile_center
+        if not bench_tiles:
+            return
+        n = len(bench_tiles)
+        # Bench can shrink when tiles move to the board; index must stay in range.
+        self.bench_cross_hair_position_index = max(
+            0, min(self.bench_cross_hair_position_index, n - 1)
+        )
+        tile = bench_tiles[self.bench_cross_hair_position_index]
+        self.bench_cross_hair_position = (tile.rect.x, tile.rect.y)
 
     def cycle_bench_cross_hair_left(self):
+        sprites = self.bench_tiles.sprites()
+        if not sprites:
+            return
         if self.bench_cross_hair_position_index <= 0:
-            self.bench_cross_hair_position_index = len(self.bench_tiles.sprites()) - 1
+            self.bench_cross_hair_position_index = len(sprites) - 1
         else:
             self.bench_cross_hair_position_index -= 1
 
     def cycle_bench_cross_hair_right(self):
-        if self.bench_cross_hair_position_index >= len(self.bench_tiles.sprites()) - 1:
+        sprites = self.bench_tiles.sprites()
+        if not sprites:
+            return
+        if self.bench_cross_hair_position_index >= len(sprites) - 1:
             self.bench_cross_hair_position_index = 0
         else:
             self.bench_cross_hair_position_index += 1
@@ -670,14 +684,22 @@ class Game:
 
         pygame.display.flip()
 
-    def run(self) -> None:
-        running = True
-        while running:
-            running = self.handle_events()
-            self.render()
-            self.clock.tick(60)
-        pygame.quit()
+    def tick_frame(self) -> bool:
+        """One main-loop iteration. Returns False after QUIT (and calls pygame.quit())."""
+        running = self.handle_events()
+        if not running:
+            pygame.quit()
+            return False
+        self.render()
+        self.clock.tick(60)
+        return True
 
+    def run(self) -> None:
+        while self.tick_frame():
+            pass
+
+    def kill(self) -> None: 
+        pygame.quit()
 
 def main():
     board_dimensions = (
