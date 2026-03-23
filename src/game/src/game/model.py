@@ -125,6 +125,9 @@ class BananaGramlModel:
         """
         Scan the logical grid for word lines and topology, without mutating board_valid.
         Used for RL reward shaping. Uses bounded neighbor checks (unlike validate's grid walk).
+
+        Returns ``valid_words`` / ``invalid_words`` for all lines, plus
+        ``valid_column_words`` (vertical) and ``valid_row_words`` (horizontal) dictionary-valid counts.
         """
         self.clean_board()
         for tile in self.tiles_on_board:
@@ -135,7 +138,13 @@ class BananaGramlModel:
 
         board = self.board
         if not board or not board[0]:
-            return {"valid_words": 0, "invalid_words": 0, "isolated_tile": False}
+            return {
+                "valid_words": 0,
+                "invalid_words": 0,
+                "isolated_tile": False,
+                "valid_column_words": 0,
+                "valid_row_words": 0,
+            }
 
         rows, cols = len(board), len(board[0])
 
@@ -160,8 +169,10 @@ class BananaGramlModel:
                 ii += 1
             return word
 
-        valid = 0
-        invalid = 0
+        valid_col = 0
+        valid_row = 0
+        invalid_col = 0
+        invalid_row = 0
         isolated = False
 
         for i in range(rows):
@@ -181,18 +192,24 @@ class BananaGramlModel:
                     w = check_col(i, j)
                     if w:
                         if self.check_dictionary(w.upper()):
-                            valid += 1
+                            valid_col += 1
                         else:
-                            invalid += 1
+                            invalid_col += 1
                 if ri is not None and le is None:
                     w = check_row(i, j)
                     if w:
                         if self.check_dictionary(w.upper()):
-                            valid += 1
+                            valid_row += 1
                         else:
-                            invalid += 1
+                            invalid_row += 1
 
-        return {"valid_words": valid, "invalid_words": invalid, "isolated_tile": isolated}
+        return {
+            "valid_words": valid_col + valid_row,
+            "invalid_words": invalid_col + invalid_row,
+            "isolated_tile": isolated,
+            "valid_column_words": valid_col,
+            "valid_row_words": valid_row,
+        }
 
     # FIXME/TODO
     """

@@ -1,19 +1,47 @@
+"""
+Bananagrams-style RL training tips (env vars):
+
+  BANANAGRAML_HEADLESS=1     Skip pygame each step (much faster; use for serious runs).
+  BANANAGRAML_INIT_BENCH=5   Start with fewer rack tiles so valid words happen sooner (curriculum).
+  BANANAGRAML_MAX_EPISODE_STEPS=8000  Truncate long stalls.
+
+After training, load both the PPO checkpoint and `bananagraml_vec_normalize.pkl` for inference
+(VecNormalize was used to scale obs/reward).
+"""
+
+import os
+
+from gymnasium.wrappers import TimeLimit
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CallbackList
-from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 from env import BananaGramlEnvironment
 
-TOTAL_TIMESTEPS = 10_000
+TOTAL_TIMESTEPS = 40_000
 LOG_EVERY_N_ENV_STEPS = 10
+HEADLESS = os.environ.get("BANANAGRAML_HEADLESS", "0") == "1"
+MAX_EPISODE_STEPS = int(os.environ.get("BANANAGRAML_MAX_EPISODE_STEPS", "8000"))
+
+# VecNormalize only normalizes Box spaces; Discrete keys stay as-is (board_valid, focus).
+# board_letters / rack_letters are 0–27 letter indices — leave unnormalized (do not blur categories).
+_VEC_NORM_OBS_KEYS = (
+    "board",
+    "bench",
+    "tiles_on_board",
+    "position_cursor",
+    "cursor_norm",
+    "dist_to_nearest_tile_norm",
+)
 
 
 def _base_gym_env(vec_env):
-    """Unwrap DummyVecEnv to the underlying BananaGramlEnvironment."""
-    envs = getattr(vec_env, "envs", None)
+    """Unwrap VecNormalize → VecEnv → TimeLimit → BananaGramlEnvironment."""
+    inner = getattr(vec_env, "venv", vec_env)
+    envs = getattr(inner, "envs", None)
     if envs:
-        return envs[0]
-    return vec_env
+        return envs[0].unwrapped
+    return vec_env.unwrapped
 
 
 class LiveBoardCallback(BaseCallback):
@@ -53,27 +81,53 @@ class TrainingProgressCallback(BaseCallback):
         return True
 
 
-def main():
-    def make_env():
-        return BananaGramlEnvironment()
+def _make_vec_env():
+    def _thunk():
+        return TimeLimit(
+            BananaGramlEnvironment(),
+            max_episode_steps=MAX_EPISODE_STEPS,
+        )
 
-    env = DummyVecEnv([make_env])
+    return _thunk
+
+
+def main():
+    venv = DummyVecEnv([_make_vec_env()])
+    # Stabilizes mixed int/float Dict obs and return scale; clip_reward must fit R_VICTORY etc.
+    venv = VecNormalize(
+        venv,
+        norm_obs=True,
+        norm_reward=True,
+        clip_obs=10.0,
+        clip_reward=100.0,
+        norm_obs_keys=list(_VEC_NORM_OBS_KEYS),
+    )
     model = PPO(
         "MultiInputPolicy",
-        env,
+        venv,
         verbose=1,
+        learning_rate=3e-4,
+        n_steps=1024,
+        batch_size=128,
+        n_epochs=10,
+        gamma=0.99,
+        gae_lambda=0.95,
+        ent_coef=0.06,
+        clip_range=0.2,
+        vf_coef=0.5,
+        max_grad_norm=0.5,
+        tensorboard_log="./tensorboard_logs",
     )
+    callbacks = [TrainingProgressCallback(LOG_EVERY_N_ENV_STEPS)]
+    if not HEADLESS:
+        callbacks.insert(0, LiveBoardCallback())
     model.learn(
         total_timesteps=TOTAL_TIMESTEPS,
-        callback=CallbackList(
-            [
-                LiveBoardCallback(),
-                TrainingProgressCallback(LOG_EVERY_N_ENV_STEPS),
-            ]
-        ),
+        callback=CallbackList(callbacks),
     )
     model.save("bananagraml_ppo")
-    env.close()
+    venv.save("bananagraml_vec_normalize.pkl")
+    venv.close()
 
 
 if __name__ == "__main__":
