@@ -1,22 +1,4 @@
 
-"""
-BananaGraml RL environment.
-
-**Rewards** (Bananagrams-oriented; applied **every** env step from post-step state):
-
-    - **Large** bonus when the board has **at least one dictionary-valid word line**
-      (`analyze_board_words` / ``valid_words > 0``).
-    - **Medium** bonus when **any** tiles share an edge horizontally or vertically (connected cluster).
-    - **Extra** for **new** valid word lines vs. the previous step; **penalty** for new invalid lines.
-    - **Small** penalty when the grid reports an **isolated** tile (not connected).
-    - **Bench**: negative reward while focus is **BENCH** and the rack is **empty**.
-
-**Observations**: ``focus``, ``cursor_norm``, ``dist_to_nearest_tile_norm``, ``board_letters``,
-``bench_letters``, ``game_stats``.
-
-"""
-
-
 import math
 import os
 from typing import Any, Dict, Optional, Tuple
@@ -29,19 +11,28 @@ import pygame.locals as locals
 from game.main import Game, GameConfig, Tile
 from game.src.game.model import BananaGramlModel
 
-# --- Rewards (tune for PPO + VecNormalize clip_reward) ---
-# At least one dictionary-valid word line on the board (big signal).
-R_VALID_WORDS_PRESENT = 12.0
-# Any orthogonal neighbor pairs among occupied cells (horizontal or vertical touch).
-R_TILES_CONNECTED = 3.0
-# Each *new* valid word line in one step (on top of R_VALID_WORDS_PRESENT when applicable).
-R_NEW_VALID_WORD_LINE = 4.0
-# Each *new* invalid word line.
-R_NEW_INVALID_WORD_LINE = -2.0
-# Isolated tile on the logical grid (disconnected from cluster).
-R_ISOLATED_TILE = -1.0
-# Focus on bench while rack is empty.
-R_FOCUS_BENCH_WHEN_EMPTY = -0.35
+
+
+# Scores ######
+
+
+# Pressing interact (pick up / place / confirm).
+R_INTERACT = 3.0
+# New dictionary-valid horizontal word line.
+R_NEW_ROW_WORD = 10.0
+# New dictionary-valid vertical word line.
+R_NEW_COL_WORD = 10.0
+# Extra bonus on top of row/column counts when any new valid word line appears.
+R_NEW_WORD_LINK = 22.0
+# Penalty per lost valid word line (multiplier; d_valid is negative).
+R_BROKE_VALID_WORD = 4.0
+# Centroid moved closer to board center (scale on normalized distance drop).
+R_CENTER_TOWARD = 2.5
+
+R_BOARD_VALID = 10
+
+
+######
 
 board_dimensions = (
     GameConfig.BOARD_WIDTH,
@@ -49,168 +40,96 @@ board_dimensions = (
     GameConfig.DIVIDER,
 )
 
-_INIT_BENCH_TILES = int(os.environ.get("BANANAGRAML_INIT_BENCH", "10"))
-_MAX_BENCH_LETTERS = 32
-_TILE_POOL_SIZE = 144
+
+# Match BananaGramlModel.build_coordinates grid size (fixed shape for SB3 buffers).
+_BOARD_COLS = math.floor(GameConfig.BOARD_WIDTH // GameConfig.DIVIDER)
+_BOARD_ROWS = math.floor(GameConfig.BOARD_HEIGHT // GameConfig.DIVIDER)
 
 
-def _letter_to_idx(value: Optional[str]) -> int:
-    """0 = empty / unknown; 1–26 = A–Z."""
-    if not value:
-        return 0
-    s = str(value).strip().upper()
-    if not s:
-        return 0
-    ch = s[0]
-    if "A" <= ch <= "Z":
-        return ord(ch) - ord("A") + 1
-    return 0
+def _letter_slot(value: str) -> float:
+    if not value or not str(value).isalpha():
+        return 0.0
+    return float(ord(str(value).upper()[0]) - ord("A") + 1)
 
 
 class BananaGramlEnvironment(gym.Env):
+    metadata = {"render_modes": ["human"], "render_fps": 60}
 
-    def __init__(self):
+    def __init__(
+        self,
+        render_mode: Optional[str] = None,
+        *,
+        starting_tiles_on_bench: int = 10,
+        max_bench_tiles: int = 32,
+    ):
+        if max_bench_tiles < 1:
+            raise ValueError("max_bench_tiles must be at least 1")
+        if starting_tiles_on_bench < 0:
+            raise ValueError("starting_tiles_on_bench must be non-negative")
 
-        model = BananaGramlModel(board_dimensions)
-        model.init_bench(_INIT_BENCH_TILES)
-        self.game = Game(model)
+        self._max_bench_tiles = max_bench_tiles
 
-        coords = self.game.model.coordinates
-        self._grid_rows = len(coords)
-        self._grid_cols = len(coords[0]) if self._grid_rows else 0
-        self._max_grid_cells = max(1, self._grid_rows * self._grid_cols)
+        self.model = BananaGramlModel(board_dimensions)
+        self.model.init_bench(starting_tiles_on_bench)
+        self.game = Game(self.model)
 
-        self.observation_space = gym.spaces.Dict(
-            {
-                "focus": gym.spaces.Discrete(2),
-                "cursor_norm": gym.spaces.Box(
-                    0.0, 1.0, shape=(2,), dtype=np.float32
+        """
+        What are out observations:
+        These are the things the agent can immediately perceive
+        1. The locations of tiles on the board
+        2. How many tiles are on the bench
+        3. Valid words on the board
+        4. The crosshair position
+        """
+        self.observation_space = gym.spaces.Dict({
+            "board_grid": gym.spaces.Box(
+                low=0.0,
+                high=26.0,
+                shape=(_BOARD_ROWS, _BOARD_COLS),
+                dtype=np.float32,
+            ),
+            "bench_letters": gym.spaces.Box(
+                low=0.0,
+                high=26.0,
+                shape=(self._max_bench_tiles,),
+                dtype=np.float32,
+            ),
+            "cross_hair_position": gym.spaces.Box(
+                low=np.array([0.0, 0.0], dtype=np.float32),
+                high=np.array(
+                    [float(GameConfig.SCREEN_WIDTH), float(GameConfig.SCREEN_HEIGHT)],
+                    dtype=np.float32,
                 ),
-                "board_letters": gym.spaces.Box(
-                    0,
-                    27,
-                    (self._grid_rows, self._grid_cols),
-                    dtype=np.int64,
-                ),
-                "bench_letters": gym.spaces.Box(
-                    0,
-                    27,
-                    (_MAX_BENCH_LETTERS,),
-                    dtype=np.int64,
-                ),
-                "dist_to_nearest_tile_norm": gym.spaces.Box(
-                    0.0, 1.0, shape=(1,), dtype=np.float32
-                ),
-                "game_stats": gym.spaces.Box(
-                    0.0, 1.0, shape=(8,), dtype=np.float32
-                ),
-            }
-        )
+                shape=(2,),
+                dtype=np.float32,
+            ),
+            "board_valid": gym.spaces.Discrete(2),
+        })
 
+        """
+        These are all the possible actions the agent can take in 
+        the game. We should include all possible actions regardless of 
+        whether they are meaningful or not. 
+        1. Move right
+        2. Move up
+        3. Move down 
+        4. Move left 
+        5. Interact with a tile
+        7. Switch from bench to board
+        """
         self.action_space = gym.spaces.Discrete(7)
 
-        print(self.observation_space, flush=True)
+        self.render_mode = render_mode
 
         self.total_rewards = 0.0
         self._display_alive = True
 
-    def _board_grid_cells(self) -> frozenset[Tuple[int, int]]:
-        model = self.game.model
-        cells: set[Tuple[int, int]] = set()
-        for t in model.tiles_on_board:
-            if not isinstance(t, Tile):
-                continue
-            center = t.model_tile.get_position()
-            if center in model.coordinate_ref:
-                cells.add(model.coordinate_ref[center])
-        return frozenset(cells)
-
-    @staticmethod
-    def _row_col_neighbor_pair_counts(
-        cells: frozenset[Tuple[int, int]],
-    ) -> Tuple[int, int]:
-        """Horizontal and vertical adjacency edge counts (each edge once)."""
-        if not cells:
-            return 0, 0
-        horizontal = 0
-        vertical = 0
-        for r, c in cells:
-            if (r, c + 1) in cells:
-                horizontal += 1
-            if (r + 1, c) in cells:
-                vertical += 1
-        return horizontal, vertical
-
-    def _word_scan(self) -> Dict[str, Any]:
-        return self.game.model.analyze_board_words()
-
-    def _dist_cursor_to_nearest_board_tile(self) -> Optional[float]:
-        cx, cy = self.game.cross_hair_position
-        best: Optional[float] = None
-        for t in self.game.model.tiles_on_board:
-            if isinstance(t, Tile):
-                px, py = t.rect.center
-                d = math.hypot(cx - px, cy - py)
-                if best is None or d < best:
-                    best = d
-        return best
-
-    def _reward_snapshot(self) -> Dict[str, Any]:
-        m = self.game.model
-        w = self._word_scan()
-        return {
-            "victory": bool(m.victory),
-            "grid_cells": self._board_grid_cells(),
-            "n_bench": len(m.tiles_on_bench),
-            "focus_board": self.game.focus_area == "BOARD",
-            "valid_words": int(w["valid_words"]),
-            "invalid_words": int(w["invalid_words"]),
-            "isolated_tile": bool(w["isolated_tile"]),
-        }
-
-    def _apply_focus_bench_empty_penalty(
-        self, after: Dict[str, Any], reward: float, info: Dict[str, Any]
-    ) -> float:
-        if after["n_bench"] == 0 and not after["focus_board"]:
-            reward += R_FOCUS_BENCH_WHEN_EMPTY
-            info["focus_bench_while_empty"] = True
-        return reward
-
-    def _compute_reward_delta(
-        self, before: Dict[str, Any], after: Dict[str, Any], action: int
-    ) -> Tuple[float, bool, Dict[str, Any]]:
-        info: Dict[str, Any] = {"action": int(action)}
-        terminated = bool(after["victory"])
-        reward = 0.0
-
-        if after["valid_words"] > 0:
-            reward += R_VALID_WORDS_PRESENT
-            info["has_valid_dictionary_words"] = True
-
-        h, v = self._row_col_neighbor_pair_counts(after["grid_cells"])
-        pairs = h + v
-        if pairs > 0:
-            reward += R_TILES_CONNECTED
-            info["orthogonal_neighbor_pairs"] = pairs
-
-        d_valid = after["valid_words"] - before["valid_words"]
-        if d_valid > 0:
-            reward += d_valid * R_NEW_VALID_WORD_LINE
-            info["new_valid_word_lines"] = d_valid
-
-        d_invalid = after["invalid_words"] - before["invalid_words"]
-        if d_invalid > 0:
-            reward += d_invalid * R_NEW_INVALID_WORD_LINE
-            info["new_invalid_word_lines"] = d_invalid
-
-        if after["isolated_tile"] and not before["isolated_tile"]:
-            reward += R_ISOLATED_TILE
-            info["new_isolated_tile"] = True
-
-        reward = self._apply_focus_bench_empty_penalty(after, reward, info)
-
-        info["reward_total"] = reward
+    def _compute_reward_delta(self, before: Dict[str, Any], after: Dict[str, Any], action: int):
+        reward = 0 
+        terminated = False 
+        info = {}
         return reward, terminated, info
+
 
     def step(self, action):
         action = int(action)
@@ -227,16 +146,19 @@ class BananaGramlEnvironment(gym.Env):
             self.move_cursor(3)
         elif action == 4:
             self.switch_focus_area()
-        elif action == 5:
-            self.pickup_tile_from_position()
-        elif action == 6:
-            self.drop_tile_at_position()
+        elif action in (5, 6):
+            # Both indices post K_x (pick up, drop, or bench→board); kept as two IDs for
+            # compatibility with policies trained with Discrete(7).
+            self._press_interact_key()
 
         if self._display_alive:
             running = self.game.handle_events()
             if not running:
                 pygame.quit()
                 self._display_alive = False
+            elif self.render_mode == "human":
+                # handle_events() does not draw; without this the window stays black.
+                self.game.render()
 
         after = self._reward_snapshot()
         reward, terminated, info = self._compute_reward_delta(before, after, action)
@@ -246,13 +168,8 @@ class BananaGramlEnvironment(gym.Env):
         truncated = False
         return obs, reward, terminated, truncated, info
 
-    def pickup_tile_from_position(self):
-        event = pygame.event.Event(locals.KEYDOWN, key=locals.K_x, mod=locals.KMOD_NONE)
-        pygame.event.post(event)
-
-    def drop_tile_at_position(self):
-        event = pygame.event.Event(locals.KEYDOWN, key=locals.K_x, mod=locals.KMOD_NONE)
-        pygame.event.post(event)
+    def _press_interact_key(self) -> None:
+        pygame.event.post(pygame.event.Event(locals.KEYDOWN, key=locals.K_x, mod=locals.KMOD_NONE))
 
     def switch_focus_area(self):
         event = pygame.event.Event(locals.KEYDOWN, key=locals.K_z, mod=locals.KMOD_NONE)
@@ -270,77 +187,55 @@ class BananaGramlEnvironment(gym.Env):
         )
         pygame.event.post(event)
 
-    def _board_letter_grid(self) -> np.ndarray:
-        g = np.zeros((self._grid_rows, self._grid_cols), dtype=np.int64)
-        m = self.game.model
-        for t in m.tiles_on_board:
-            if not isinstance(t, Tile):
-                continue
-            mt = t.model_tile
-            center = mt.get_position()
-            if center not in m.coordinate_ref:
-                continue
-            r, c = m.coordinate_ref[center]
-            g[r, c] = _letter_to_idx(mt.get_value())
-        return g
+    def _reward_snapshot(self) -> Dict[str, Any]:
+        return self.model.get_game_state()
 
-    def _bench_letter_vector(self) -> np.ndarray:
-        v = np.zeros((_MAX_BENCH_LETTERS,), dtype=np.int64)
-        bench = self.game.model.tiles_on_bench
-        for i, mt in enumerate(bench[:_MAX_BENCH_LETTERS]):
-            v[i] = _letter_to_idx(mt.get_value())
-        return v
+    def _encode_board_grid(self) -> np.ndarray:
+        grid = np.zeros((_BOARD_ROWS, _BOARD_COLS), dtype=np.float32)
+        board = self.model.board
+        if (
+            len(board) != _BOARD_ROWS
+            or _BOARD_ROWS == 0
+            or len(board[0]) != _BOARD_COLS
+        ):
+            return grid
+        for i in range(_BOARD_ROWS):
+            for j in range(_BOARD_COLS):
+                cell = board[i][j]
+                if cell is not None:
+                    grid[i, j] = _letter_slot(cell.get_value())
+        return grid
 
-    def _game_stats_vector(self) -> np.ndarray:
-        m, g = self.game.model, self.game
-        v = np.zeros(8, dtype=np.float32)
-        n_bench = len(m.tiles_on_bench)
-        n_board = len(m.tiles_on_board)
-        v[0] = min(1.0, n_bench / float(_MAX_BENCH_LETTERS))
-        v[1] = min(1.0, n_board / float(self._max_grid_cells))
-        v[2] = min(1.0, m.tile_bank.get_current_size() / float(_TILE_POOL_SIZE))
-        v[3] = 1.0 if g.selected_tile is not None else 0.0
-        v[4] = 1.0 if m.board_valid else 0.0
-        v[5] = 1.0 if m.tile_bank.can_dump() else 0.0
-        cells = self._board_grid_cells()
-        if cells:
-            mr = sum(r for r, _ in cells) / len(cells)
-            mc = sum(c for _, c in cells) / len(cells)
-            rn = max(1.0, float(self._grid_rows - 1))
-            cn = max(1.0, float(self._grid_cols - 1))
-            v[6] = float(mr / rn)
-            v[7] = float(mc / cn)
-        else:
-            v[6] = v[7] = 0.5
-        return v
+    def _encode_bench_letters(self) -> np.ndarray:
+        out = np.zeros((self._max_bench_tiles,), dtype=np.float32)
+        bench = self.model.tiles_on_bench
+        for k, tile in enumerate(bench[: self._max_bench_tiles]):
+            out[k] = _letter_slot(tile.get_value())
+        return out
 
-    def _get_obs(self):
-        g = self.game
-        cx, cy = g.cross_hair_position
-        cursor_norm = np.asarray(
-            [cx / float(GameConfig.BOARD_WIDTH), cy / float(GameConfig.BOARD_HEIGHT)],
-            dtype=np.float32,
-        )
-        d = self._dist_cursor_to_nearest_board_tile()
-        diag = math.hypot(float(GameConfig.BOARD_WIDTH), float(GameConfig.BOARD_HEIGHT))
-        dist_norm = 1.0 if d is None else float(min(1.0, d / diag))
+    def _get_obs(self) -> Dict[str, Any]:
+        pos = self.game.cross_hair_position
+        cross = np.asarray(pos, dtype=np.float32).reshape(2)
         return {
-            "focus": 1 if g.focus_area == "BOARD" else 0,
-            "cursor_norm": cursor_norm,
-            "board_letters": self._board_letter_grid(),
-            "bench_letters": self._bench_letter_vector(),
-            "dist_to_nearest_tile_norm": np.asarray([dist_norm], dtype=np.float32),
-            "game_stats": self._game_stats_vector(),
+            "board_grid": self._encode_board_grid(),
+            "bench_letters": self._encode_bench_letters(),
+            "cross_hair_position": cross,
+            "board_valid": np.int64(1 if self.model.board_valid else 0),
         }
+
+
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.total_rewards = 0.0
-        return self._get_obs(), {}
+        obs = self._get_obs()
+        if self._display_alive and self.render_mode == "human":
+            self.game.render()
+        return obs, {}
 
     def render(self):
-        if self._display_alive:
-            self._display_alive = self.game.tick_frame()
+        if self._display_alive and self.render_mode == "human":
+            self.game.render()
 
     def close(self):
         self.game.kill()

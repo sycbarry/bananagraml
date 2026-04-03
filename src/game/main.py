@@ -1,5 +1,7 @@
 # Example file showing a circle moving on screen
 import pygame
+import pygame.surfarray
+import numpy as np
 from .src.game.model import BananaGramlModel
 import sys
 from dataclasses import dataclass
@@ -433,6 +435,8 @@ class Game:
         self.drag_select = DragSelect()
         self.is_dragging = False
         self.focus_area = "BOARD"
+
+        # this is where the cursor starts (x , y position)
         self.cross_hair_position = (0, 0)  # the default position for the crosshair
         self.bench_cross_hair_position_index = 0
         self.bench_cross_hair_position = (
@@ -683,6 +687,21 @@ class Game:
             pygame.draw.rect(self.screen, "red", self.cross_hair, 2)
 
         pygame.display.flip()
+
+    def get_screen_rgb(self, max_width: int = 640) -> np.ndarray:
+        """
+        RGB snapshot of the full window after the last ``render()`` call.
+        Shape ``(H, W, 3)``, ``uint8``. Scaled down if wider than ``max_width``.
+        """
+        surf = self.screen
+        w, h = surf.get_size()
+        if w > max_width:
+            nw = max_width
+            nh = max(1, int(round(h * (max_width / float(w)))))
+            surf = pygame.transform.smoothscale(surf, (nw, nh))
+        arr = pygame.surfarray.array3d(surf)
+        arr = np.transpose(arr, (1, 0, 2))
+        return np.ascontiguousarray(arr)
 
     def tick_frame(self) -> bool:
         """One main-loop iteration. Returns False after QUIT (and calls pygame.quit())."""

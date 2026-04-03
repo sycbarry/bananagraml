@@ -1,0 +1,9 @@
+{
+  "total_timesteps": 40000,
+  "headless": false,
+  "max_episode_steps": 100,
+  "starting_tiles_on_bench": 10,
+  "max_bench_tiles": 32,
+  "random_seed": null,
+  "ppo_verbose": 1
+}

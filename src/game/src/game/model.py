@@ -20,7 +20,6 @@ class BananaGramlModel:
         self.victory = False
         self.coordinates = self.build_coordinates(coordinates=BOARD_DIMENSIONS)
         self.coordinate_ref = self.build_coordinate_ref()
-        self.board = []
         self.tile_bank = TileBank()
         self.tiles_on_board = []  # need to make this the live board rep.
         self.tiles_on_bench = []
@@ -121,95 +120,6 @@ class BananaGramlModel:
         print(all_words)
         return True
 
-    def analyze_board_words(self):
-        """
-        Scan the logical grid for word lines and topology, without mutating board_valid.
-        Used for RL reward shaping. Uses bounded neighbor checks (unlike validate's grid walk).
-
-        Returns ``valid_words`` / ``invalid_words`` for all lines, plus
-        ``valid_column_words`` (vertical) and ``valid_row_words`` (horizontal) dictionary-valid counts.
-        """
-        self.clean_board()
-        for tile in self.tiles_on_board:
-            center = tile.model_tile.get_position()
-            if center in self.coordinate_ref:
-                x, y = self.coordinate_ref[center]
-                self.board[x][y] = tile.model_tile
-
-        board = self.board
-        if not board or not board[0]:
-            return {
-                "valid_words": 0,
-                "invalid_words": 0,
-                "isolated_tile": False,
-                "valid_column_words": 0,
-                "valid_row_words": 0,
-            }
-
-        rows, cols = len(board), len(board[0])
-
-        def cell(ri, rj):
-            if ri < 0 or rj < 0 or ri >= rows or rj >= cols:
-                return None
-            return board[ri][rj]
-
-        def check_row(i, j):
-            word = ""
-            jj = j
-            while jj < cols and board[i][jj] is not None:
-                word += board[i][jj].get_value()
-                jj += 1
-            return word
-
-        def check_col(i, j):
-            word = ""
-            ii = i
-            while ii < rows and board[ii][j] is not None:
-                word += board[ii][j].get_value()
-                ii += 1
-            return word
-
-        valid_col = 0
-        valid_row = 0
-        invalid_col = 0
-        invalid_row = 0
-        isolated = False
-
-        for i in range(rows):
-            for j in range(cols):
-                if board[i][j] is None:
-                    continue
-                u, d, le, ri = (
-                    cell(i - 1, j),
-                    cell(i + 1, j),
-                    cell(i, j - 1),
-                    cell(i, j + 1),
-                )
-                if u is None and d is None and le is None and ri is None:
-                    isolated = True
-                    continue
-                if d is not None and u is None:
-                    w = check_col(i, j)
-                    if w:
-                        if self.check_dictionary(w.upper()):
-                            valid_col += 1
-                        else:
-                            invalid_col += 1
-                if ri is not None and le is None:
-                    w = check_row(i, j)
-                    if w:
-                        if self.check_dictionary(w.upper()):
-                            valid_row += 1
-                        else:
-                            invalid_row += 1
-
-        return {
-            "valid_words": valid_col + valid_row,
-            "invalid_words": invalid_col + invalid_row,
-            "isolated_tile": isolated,
-            "valid_column_words": valid_col,
-            "valid_row_words": valid_row,
-        }
 
     # FIXME/TODO
     """
@@ -234,6 +144,8 @@ class BananaGramlModel:
         self.dump_board()  # dumps the coordinates etc into a json file for review.
         if len(self.tiles_on_bench) == 0 and self.board_valid:
             self.peel()
+
+
 
     def dump_board(self):
         with open(_GAME_ROOT / "board.json", encoding="utf-8", mode="w") as f:
@@ -277,9 +189,10 @@ class BananaGramlModel:
     def get_game_state(self):
         return {
             "board_valid": self.board_valid, 
-            "board": self.board, 
+            "board": self.board,
             "bench": self.tiles_on_bench, 
-            "tiles_on_board": self.tiles_on_board}
+            "tiles_on_board": self.tiles_on_board, 
+        }
 
     def print_layout(self):
         for row in self.coordinates:
