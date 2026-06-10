@@ -26,6 +26,7 @@ class TrainingConfig:
     max_bench_tiles: int
     random_seed: Optional[int]
     ppo_verbose: int
+    tensorboard_log: Optional[str]
 
 
 def _defaults() -> dict[str, Any]:
@@ -37,6 +38,7 @@ def _defaults() -> dict[str, Any]:
         "max_bench_tiles": 32,
         "random_seed": None,
         "ppo_verbose": 1,
+        "tensorboard_log": "tensorboard_logs/default",
     }
 
 
@@ -68,4 +70,7 @@ def load_training_config(path: Optional[str | Path] = None) -> TrainingConfig:
         max_bench_tiles=int(data["max_bench_tiles"]),
         random_seed=None if data["random_seed"] is None else int(data["random_seed"]),
         ppo_verbose=int(data["ppo_verbose"]),
+        tensorboard_log=None
+        if data.get("tensorboard_log") in (None, "")
+        else str(data["tensorboard_log"]),
     )

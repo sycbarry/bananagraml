@@ -117,7 +117,6 @@ class BananaGramlModel:
                             return False
                         all_words.append(word)
 
-        print(all_words)
         return True
 
 

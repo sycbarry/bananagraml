@@ -42,7 +42,12 @@ def main(argv: list[str] | None = None) -> None:
         set_random_seed(cfg.random_seed, using_cuda=False)
 
     venv = DummyVecEnv([_make_vec_env(cfg)])
-    model = PPO("MultiInputPolicy", venv, verbose=cfg.ppo_verbose)
+    model = PPO(
+        "MultiInputPolicy",
+        venv,
+        verbose=cfg.ppo_verbose,
+        tensorboard_log=cfg.tensorboard_log,
+    )
     model.learn(total_timesteps=cfg.total_timesteps)
     venv.close()
 

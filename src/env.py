@@ -1,14 +1,12 @@
-
 import math
-import os
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 import gymnasium as gym
 import numpy as np
 import pygame
 import pygame.locals as locals
 
-from game.main import Game, GameConfig, Tile
+from game.main import Game, GameConfig
 from game.src.game.model import BananaGramlModel
 
 
@@ -30,6 +28,14 @@ R_BROKE_VALID_WORD = 4.0
 R_CENTER_TOWARD = 2.5
 
 R_BOARD_VALID = 10
+# Tile moved from hand to the board grid (count of board tiles increased).
+R_TILE_TO_BOARD = 7.0
+# Dealt new tiles after clearing the bench with a valid board.
+R_PEEL = 12.0
+# Bank empty / win condition from the model.
+R_VICTORY = 150.0
+# Small shaping when focus or pick-up state actually changes.
+R_FOCUS_SWITCH = 0.1
 
 
 ######
@@ -45,11 +51,21 @@ board_dimensions = (
 _BOARD_COLS = math.floor(GameConfig.BOARD_WIDTH // GameConfig.DIVIDER)
 _BOARD_ROWS = math.floor(GameConfig.BOARD_HEIGHT // GameConfig.DIVIDER)
 
+# Fast A–Z / a–z → 1–26 for observation encoding (avoids branches per cell).
+_LETTER_LUT = np.zeros(256, dtype=np.float32)
+for _c in range(ord("A"), ord("Z") + 1):
+    _LETTER_LUT[_c] = float(_c - ord("A") + 1)
+for _c in range(ord("a"), ord("z") + 1):
+    _LETTER_LUT[_c] = float(_c - ord("a") + 1)
 
-def _letter_slot(value: str) -> float:
-    if not value or not str(value).isalpha():
-        return 0.0
-    return float(ord(str(value).upper()[0]) - ord("A") + 1)
+_BOARD_VALID_OBS = (np.int64(0), np.int64(1))
+
+_CURSOR_KEYS = (
+    locals.K_UP,
+    locals.K_DOWN,
+    locals.K_LEFT,
+    locals.K_RIGHT,
+)
 
 
 class BananaGramlEnvironment(gym.Env):
@@ -124,10 +140,67 @@ class BananaGramlEnvironment(gym.Env):
         self.total_rewards = 0.0
         self._display_alive = True
 
-    def _compute_reward_delta(self, before: Dict[str, Any], after: Dict[str, Any], action: int):
-        reward = 0 
-        terminated = False 
-        info = {}
+        # Reused each step to cut allocations (SB3 copies into its vec buffers).
+        self._board_grid_buf = np.zeros((_BOARD_ROWS, _BOARD_COLS), dtype=np.float32)
+        self._bench_buf = np.zeros((self._max_bench_tiles,), dtype=np.float32)
+        self._cross_buf = np.zeros((2,), dtype=np.float32)
+
+    def _compute_reward_delta(
+        self, before: Dict[str, Any], after: Dict[str, Any], action: int
+    ) -> tuple[float, bool, Dict[str, float]]:
+        reward = 0.0
+        terminated = False
+        info: Dict[str, float] = {}
+
+        n_board0 = int(before["_n_board"])
+        n_board1 = int(after["_n_board"])
+        n_bench0 = int(before["_n_bench"])
+        n_bench1 = int(after["_n_bench"])
+        dn_board = n_board1 - n_board0
+
+        valid0 = bool(before["board_valid"])
+        valid1 = bool(after["board_valid"])
+
+        if dn_board > 0:
+            reward += R_TILE_TO_BOARD
+            info["r_tile_to_board"] = R_TILE_TO_BOARD
+
+        # Bench was cleared with a valid layout, then new tiles were peeled.
+        if n_bench0 == 0 and n_bench1 > 0 and valid1:
+            reward += R_PEEL
+            info["r_peel"] = R_PEEL
+
+        if valid1 and not valid0:
+            reward += R_BOARD_VALID
+            info["r_recovered_valid"] = R_BOARD_VALID
+        elif not valid1 and valid0:
+            pen = R_BROKE_VALID_WORD * 2.0
+            reward -= pen
+            info["r_broke_valid"] = -pen
+
+        if valid1:
+            reward += 0.02
+        else:
+            reward -= 0.05
+
+        if after["_victory"] and not before["_victory"]:
+            reward += R_VICTORY
+            terminated = True
+            info["r_victory"] = R_VICTORY
+
+        if action == 4 and before["_focus"] != after["_focus"]:
+            reward += R_FOCUS_SWITCH
+            info["r_focus_switch"] = R_FOCUS_SWITCH
+
+        if action in (5, 6):
+            if dn_board != 0 or before["_holding"] != after["_holding"]:
+                ri = R_INTERACT * 0.5
+                reward += ri
+                info["r_interact"] = ri
+            else:
+                reward += 0.02
+                info["r_interact_try"] = 0.02
+
         return reward, terminated, info
 
 
@@ -176,22 +249,25 @@ class BananaGramlEnvironment(gym.Env):
         pygame.event.post(event)
 
     def move_cursor(self, value):
-        directions = {
-            0: locals.K_UP,
-            1: locals.K_DOWN,
-            2: locals.K_LEFT,
-            3: locals.K_RIGHT,
-        }
         event = pygame.event.Event(
-            locals.KEYDOWN, key=directions[value], mod=locals.KMOD_NONE
+            locals.KEYDOWN, key=_CURSOR_KEYS[value], mod=locals.KMOD_NONE
         )
         pygame.event.post(event)
 
     def _reward_snapshot(self) -> Dict[str, Any]:
-        return self.model.get_game_state()
+        m = self.model
+        g = self.game
+        snap = m.get_game_state()
+        snap["_n_board"] = len(m.tiles_on_board)
+        snap["_n_bench"] = len(m.tiles_on_bench)
+        snap["_victory"] = bool(m.victory)
+        snap["_focus"] = g.focus_area
+        snap["_holding"] = g.selected_tile is not None
+        return snap
 
     def _encode_board_grid(self) -> np.ndarray:
-        grid = np.zeros((_BOARD_ROWS, _BOARD_COLS), dtype=np.float32)
+        grid = self._board_grid_buf
+        grid.fill(0.0)
         board = self.model.board
         if (
             len(board) != _BOARD_ROWS
@@ -199,28 +275,39 @@ class BananaGramlEnvironment(gym.Env):
             or len(board[0]) != _BOARD_COLS
         ):
             return grid
+        lut = _LETTER_LUT
         for i in range(_BOARD_ROWS):
+            row = board[i]
+            grow = grid[i]
             for j in range(_BOARD_COLS):
-                cell = board[i][j]
+                cell = row[j]
                 if cell is not None:
-                    grid[i, j] = _letter_slot(cell.get_value())
+                    ch = cell.get_value()
+                    if ch:
+                        grow[j] = lut[ord(ch[0])]
         return grid
 
     def _encode_bench_letters(self) -> np.ndarray:
-        out = np.zeros((self._max_bench_tiles,), dtype=np.float32)
+        buf = self._bench_buf
+        buf.fill(0.0)
         bench = self.model.tiles_on_bench
-        for k, tile in enumerate(bench[: self._max_bench_tiles]):
-            out[k] = _letter_slot(tile.get_value())
-        return out
+        n = min(len(bench), self._max_bench_tiles)
+        lut = _LETTER_LUT
+        for k in range(n):
+            ch = bench[k].get_value()
+            if ch:
+                buf[k] = lut[ord(ch[0])]
+        return buf
 
     def _get_obs(self) -> Dict[str, Any]:
         pos = self.game.cross_hair_position
-        cross = np.asarray(pos, dtype=np.float32).reshape(2)
+        self._cross_buf[0] = float(pos[0])
+        self._cross_buf[1] = float(pos[1])
         return {
             "board_grid": self._encode_board_grid(),
             "bench_letters": self._encode_bench_letters(),
-            "cross_hair_position": cross,
-            "board_valid": np.int64(1 if self.model.board_valid else 0),
+            "cross_hair_position": self._cross_buf,
+            "board_valid": _BOARD_VALID_OBS[1 if self.model.board_valid else 0],
         }
 
 
